@@ -237,6 +237,20 @@ export function ScheduleIcon() {
   )
 }
 
+export function formatScheduleFrequency(
+  frequency?: string,
+  daysOfWeek: number[] = [],
+  runAt?: string
+): string {
+  const time = runAt ? new Date(runAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''
+  if (frequency === 'daily') return time ? `Every day at ${time}` : 'Every day'
+  if (frequency === 'weekly') {
+    const days = daysOfWeek.map((d) => WEEKDAYS.find((w) => w.id === d)?.label ?? String(d)).join(', ')
+    return time ? `Weekly on ${days} at ${time}` : `Weekly on ${days}`
+  }
+  return 'Once'
+}
+
 export function formatNextRun(s: ScenarioListItem): string | null {
   if (!s.next_run_at || !s.schedule_frequency) return null
   const when = new Date(s.next_run_at).toLocaleString()

@@ -105,9 +105,29 @@ export interface QueuedRunItem extends TestRun {
   queue_position: number
 }
 
+export interface ScheduledQueueItem {
+  schedule_id?: number
+  test_run_id?: number
+  scenario_id: number
+  scenario_name?: string
+  release_id?: number
+  release_name?: string
+  build_id?: number
+  build_name?: string
+  application_id?: number
+  application_name?: string
+  scenario_tags?: string[]
+  frequency?: 'once' | 'daily' | 'weekly'
+  run_at?: string
+  days_of_week: number[]
+  next_run_at: string
+  notes?: string
+}
+
 export interface TestRunQueue {
   running: TestRun | null
   queued: QueuedRunItem[]
+  scheduled: ScheduledQueueItem[]
 }
 
 export interface HostResourceSample {

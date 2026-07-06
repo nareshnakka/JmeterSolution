@@ -993,6 +993,12 @@ tr.selected td { background: var(--brand-light); }
   color: var(--muted);
 }
 
+.queue-action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
 .resource-summary {
   display: flex;
   flex-wrap: wrap;

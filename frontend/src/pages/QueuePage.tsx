@@ -2,8 +2,9 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
 import RunTags from '../components/RunTags'
+import ScenarioScheduleModal, { formatScheduleFrequency } from '../components/ScenarioScheduleModal'
 import { useToast } from '../components/Toast'
-import type { QueuedRunItem, TestRun, TestRunQueue } from '../types'
+import type { QueuedRunItem, ScenarioListItem, ScheduledQueueItem, TestRun, TestRunQueue } from '../types'
 
 function statusBadge(status: string) {
   return <span className={`badge badge-${status}`}>{status}</span>
@@ -14,17 +15,47 @@ function runLabel(run: TestRun) {
   return parts.join(' → ') || `Scenario #${run.scenario_id}`
 }
 
+function scheduledLabel(item: ScheduledQueueItem) {
+  const parts = [item.release_name, item.build_name, item.application_name, item.scenario_name].filter(Boolean)
+  return parts.join(' → ') || `Scenario #${item.scenario_id}`
+}
+
+function toScenarioListItem(item: ScheduledQueueItem): ScenarioListItem {
+  return {
+    id: item.scenario_id,
+    name: item.scenario_name ?? '',
+    tags: item.scenario_tags ?? [],
+    jmx_filename: '',
+    release_id: item.release_id ?? 0,
+    release_name: item.release_name ?? '',
+    build_id: item.build_id ?? 0,
+    build_name: item.build_name ?? '',
+    application_id: item.application_id ?? 0,
+    application_name: item.application_name ?? '',
+    created_at: item.next_run_at,
+    is_running: false,
+    schedule_id: item.schedule_id,
+    schedule_frequency: item.frequency,
+    next_run_at: item.next_run_at,
+  }
+}
+
 export default function QueuePage() {
   const toast = useToast()
-  const [queue, setQueue] = useState<TestRunQueue>({ running: null, queued: [] })
+  const [queue, setQueue] = useState<TestRunQueue>({ running: null, queued: [], scheduled: [] })
   const [loading, setLoading] = useState(false)
-  const [cancellingId, setCancellingId] = useState<number | null>(null)
+  const [cancellingId, setCancellingId] = useState<string | null>(null)
+  const [editingSchedule, setEditingSchedule] = useState<ScenarioListItem | null>(null)
 
   const loadQueue = useCallback(async () => {
     setLoading(true)
     try {
       const data = await api.getTestRunQueue()
-      setQueue(data)
+      setQueue({
+        running: data.running,
+        queued: data.queued,
+        scheduled: data.scheduled ?? [],
+      })
     } catch (e) {
       console.error(e)
     } finally {
@@ -39,7 +70,8 @@ export default function QueuePage() {
   }, [loadQueue])
 
   async function cancelQueued(run: QueuedRunItem) {
-    setCancellingId(run.id)
+    const key = `run-${run.id}`
+    setCancellingId(key)
     try {
       await api.cancelTestRun(run.id)
       toast.success(`Removed run #${run.id} from the queue`)
@@ -51,13 +83,37 @@ export default function QueuePage() {
     }
   }
 
-  const isIdle = !queue.running && queue.queued.length === 0
+  async function cancelScheduled(item: ScheduledQueueItem) {
+    const key = item.schedule_id ? `schedule-${item.schedule_id}` : `test-${item.test_run_id}`
+    setCancellingId(key)
+    try {
+      if (item.schedule_id) {
+        await api.cancelScenarioSchedule(item.scenario_id)
+        toast.success(`Schedule cancelled for "${item.scenario_name ?? 'scenario'}"`)
+      } else if (item.test_run_id) {
+        await api.cancelTestRun(item.test_run_id)
+        toast.success(`Cancelled scheduled run #${item.test_run_id}`)
+      }
+      await loadQueue()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to cancel schedule')
+    } finally {
+      setCancellingId(null)
+    }
+  }
+
+  function cancelKey(item: ScheduledQueueItem) {
+    return item.schedule_id ? `schedule-${item.schedule_id}` : `test-${item.test_run_id}`
+  }
+
+  const isIdle = !queue.running && queue.queued.length === 0 && queue.scheduled.length === 0
 
   return (
     <>
       <h1 className="page-title">Run Queue</h1>
       <p className="page-lead">
-        Only one test runs at a time. Additional runs wait here until the server is free.
+        Only one test runs at a time. Additional runs wait in the queue until the server is free.
+        Scheduled tests appear below and start automatically at the configured time.
       </p>
 
       <div className="card">
@@ -65,6 +121,7 @@ export default function QueuePage() {
           <span className="table-toolbar-count">
             {loading && isIdle ? 'Loading…' : queue.running ? '1 running' : 'Idle'}
             {queue.queued.length > 0 && ` · ${queue.queued.length} queued`}
+            {queue.scheduled.length > 0 && ` · ${queue.scheduled.length} scheduled`}
           </span>
           <button className="btn btn-secondary" onClick={loadQueue} disabled={loading}>
             Refresh
@@ -131,7 +188,7 @@ export default function QueuePage() {
                       <button
                         className="btn btn-danger"
                         style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
-                        disabled={cancellingId === run.id}
+                        disabled={cancellingId === `run-${run.id}`}
                         onClick={() => cancelQueued(run)}
                       >
                         Cancel
@@ -143,7 +200,80 @@ export default function QueuePage() {
             </table>
           </div>
         )}
+
+        <h2 className="queue-section-title">Scheduled</h2>
+        {queue.scheduled.length === 0 ? (
+          <p className="empty">No scheduled tests</p>
+        ) : (
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Scenario</th>
+                  <th>Frequency</th>
+                  <th>Next run</th>
+                  <th>Notes</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {queue.scheduled.map((item) => (
+                  <tr key={item.schedule_id ? `s-${item.schedule_id}` : `t-${item.test_run_id}`}>
+                    <td>
+                      <div>{scheduledLabel(item)}</div>
+                      {item.scenario_tags && item.scenario_tags.length > 0 && (
+                        <RunTags tags={item.scenario_tags} />
+                      )}
+                      {item.test_run_id && (
+                        <div className="queue-meta">Scheduled run #{item.test_run_id}</div>
+                      )}
+                    </td>
+                    <td>
+                      {formatScheduleFrequency(item.frequency, item.days_of_week, item.run_at)}
+                    </td>
+                    <td>{new Date(item.next_run_at).toLocaleString()}</td>
+                    <td>{item.notes?.trim() || '—'}</td>
+                    <td>
+                      <div className="queue-action-buttons">
+                        {item.schedule_id && (
+                          <button
+                            type="button"
+                            className="btn btn-secondary"
+                            style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
+                            onClick={() => setEditingSchedule(toScenarioListItem(item))}
+                          >
+                            Edit
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className="btn btn-danger"
+                          style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
+                          disabled={cancellingId === cancelKey(item)}
+                          onClick={() => cancelScheduled(item)}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
+
+      {editingSchedule && (
+        <ScenarioScheduleModal
+          scenario={editingSchedule}
+          onClose={() => setEditingSchedule(null)}
+          onSaved={() => {
+            setEditingSchedule(null)
+            void loadQueue()
+          }}
+        />
+      )}
     </>
   )
 }

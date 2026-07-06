@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
-from app.models import Application, Build, Release, Scenario, TestRun, TestRunStatus, TestRunType
+from app.models import Application, Build, Release, Scenario, ScenarioSchedule, TestRun, TestRunStatus, TestRunType
 from app.schemas import (
     ArtifactInfo,
     CompareRequest,
@@ -19,6 +19,7 @@ from app.schemas import (
     ErrorSample,
     ErrorDetailOut,
     HostResourcesOut,
+    ScheduledQueueItem,
     TestRunCreate,
     TestRunDeleteFailure,
     TestRunDeleteOut,
@@ -36,6 +37,7 @@ from app.services.system_config import get_system_config
 from app.services.jtl_parser import parse_jtl_file
 from app.services.run_queue import try_start_or_queue
 from app.services.scheduler import schedule_test_run, unschedule_test_run
+from app.services.scenario_schedule import parse_days_of_week
 
 router = APIRouter(prefix="/api/test-runs", tags=["test-runs"])
 
@@ -70,6 +72,86 @@ def _enrich_run(run: TestRun, db: Session) -> TestRunOut:
                 if release:
                     out.release_name = release.name
     return out
+
+
+def _scenario_context(scenario: Scenario, db: Session) -> dict:
+    ctx: dict = {
+        "scenario_name": scenario.name,
+        "scenario_tags": _parse_scenario_tags(scenario.tag),
+        "release_id": None,
+        "release_name": None,
+        "build_id": None,
+        "build_name": None,
+        "application_id": scenario.application_id,
+        "application_name": None,
+    }
+    app = db.get(Application, scenario.application_id)
+    if app:
+        ctx["application_name"] = app.name
+        ctx["build_id"] = app.build_id
+        build = db.get(Build, app.build_id)
+        if build:
+            ctx["build_name"] = build.name
+            ctx["release_id"] = build.release_id
+            release = db.get(Release, build.release_id)
+            if release:
+                ctx["release_name"] = release.name
+    return ctx
+
+
+def _list_scheduled_items(db: Session) -> list[ScheduledQueueItem]:
+    items: list[ScheduledQueueItem] = []
+
+    for schedule in (
+        db.query(ScenarioSchedule)
+        .filter(ScenarioSchedule.is_active.is_(True))
+        .order_by(ScenarioSchedule.next_run_at.asc())
+        .all()
+    ):
+        scenario = db.get(Scenario, schedule.scenario_id)
+        if not scenario:
+            continue
+        frequency = (
+            schedule.frequency.value
+            if hasattr(schedule.frequency, "value")
+            else str(schedule.frequency)
+        )
+        items.append(
+            ScheduledQueueItem(
+                schedule_id=schedule.id,
+                scenario_id=scenario.id,
+                frequency=frequency,
+                run_at=schedule.run_at,
+                days_of_week=parse_days_of_week(schedule.days_of_week),
+                next_run_at=schedule.next_run_at,
+                notes=schedule.notes,
+                **_scenario_context(scenario, db),
+            )
+        )
+
+    for run in (
+        db.query(TestRun)
+        .filter(TestRun.status == TestRunStatus.SCHEDULED, TestRun.is_archived.is_(False))
+        .order_by(TestRun.scheduled_at.asc())
+        .all()
+    ):
+        scenario = db.get(Scenario, run.scenario_id)
+        if not scenario or not run.scheduled_at:
+            continue
+        items.append(
+            ScheduledQueueItem(
+                test_run_id=run.id,
+                scenario_id=scenario.id,
+                frequency="once",
+                run_at=run.scheduled_at,
+                next_run_at=run.scheduled_at,
+                notes=run.notes,
+                **_scenario_context(scenario, db),
+            )
+        )
+
+    items.sort(key=lambda item: item.next_run_at)
+    return items
 
 
 @router.get("", response_model=list[TestRunOut])
@@ -123,6 +205,7 @@ def get_run_queue(db: Session = Depends(get_db)):
             QueuedRunItem(**_enrich_run(run, db).model_dump(), queue_position=index + 1)
             for index, run in enumerate(pending)
         ],
+        scheduled=_list_scheduled_items(db),
     )
 
 

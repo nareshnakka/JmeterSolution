@@ -193,9 +193,29 @@ class QueuedRunItem(TestRunOut):
     queue_position: int
 
 
+class ScheduledQueueItem(BaseModel):
+    schedule_id: int | None = None
+    test_run_id: int | None = None
+    scenario_id: int
+    scenario_name: str | None = None
+    release_id: int | None = None
+    release_name: str | None = None
+    build_id: int | None = None
+    build_name: str | None = None
+    application_id: int | None = None
+    application_name: str | None = None
+    scenario_tags: list[str] = Field(default_factory=list)
+    frequency: str | None = None
+    run_at: datetime | None = None
+    days_of_week: list[int] = Field(default_factory=list)
+    next_run_at: datetime
+    notes: str | None = None
+
+
 class TestRunQueueOut(BaseModel):
     running: TestRunOut | None = None
     queued: list[QueuedRunItem] = Field(default_factory=list)
+    scheduled: list[ScheduledQueueItem] = Field(default_factory=list)
 
 
 class HostResourceSample(BaseModel):
