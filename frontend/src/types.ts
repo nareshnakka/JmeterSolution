@@ -74,6 +74,8 @@ export interface TestRun {
   log_path?: string
   error_message?: string
   notes?: string
+  is_archived?: boolean
+  archived_at?: string
   created_at: string
   scenario_name?: string
   release_name?: string
@@ -143,4 +145,31 @@ export interface CompareSummary {
   started_at?: string
   finished_at?: string
   transactions: TransactionMetric[]
+}
+
+export interface SystemConfig {
+  jmeter_home: string
+  data_root: string
+  archive_retention_months: number
+  auto_archive_enabled: boolean
+  jmeter_found: boolean
+  updated_at?: string
+}
+
+export interface ArchiveRunItem {
+  id: number
+  scenario_name?: string
+  release_name?: string
+  build_name?: string
+  application_name?: string
+  status: string
+  finished_at?: string
+  is_archived: boolean
+  archived_at?: string
+  run_dir?: string
+}
+
+export interface ArchiveActionResult {
+  succeeded: number[]
+  failed: { id: number; error: string }[]
 }

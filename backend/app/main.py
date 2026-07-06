@@ -10,8 +10,9 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.staticfiles import StaticFiles
 
 from app.config import settings
-from app.database import init_db
-from app.routers import hierarchy, test_runs, websocket
+from app.database import SessionLocal, init_db
+from app.services.system_config import get_system_config
+from app.routers import config, hierarchy, test_runs, websocket
 from app.services.scheduler import shutdown_scheduler, start_scheduler
 
 _frontend_dist = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
@@ -51,18 +52,25 @@ app.add_middleware(
 
 app.include_router(hierarchy.router)
 app.include_router(test_runs.router)
+app.include_router(config.router)
 app.include_router(websocket.router)
 
 
 @app.get("/api/health")
 def health():
-    jmeter_ok = settings.jmeter_bin.exists()
-    return {
-        "status": "ok" if jmeter_ok else "degraded",
-        "jmeter_home": str(settings.jmeter_home),
-        "jmeter_found": jmeter_ok,
-        "data_root": str(settings.data_root),
-    }
+    db = SessionLocal()
+    try:
+        cfg = get_system_config(db)
+        jmeter_path = Path(cfg.jmeter_home)
+        jmeter_ok = (jmeter_path / "bin" / "jmeter.bat").is_file()
+        return {
+            "status": "ok" if jmeter_ok else "degraded",
+            "jmeter_home": cfg.jmeter_home,
+            "jmeter_found": jmeter_ok,
+            "data_root": cfg.data_root,
+        }
+    finally:
+        db.close()
 
 
 # SPA client-side routes (must be registered before static mount)
@@ -71,6 +79,7 @@ if _frontend_dist.is_dir():
     @app.get("/runs")
     @app.get("/scenarios")
     @app.get("/compare")
+    @app.get("/config")
     async def spa_routes():
         return FileResponse(_frontend_dist / "index.html")
 

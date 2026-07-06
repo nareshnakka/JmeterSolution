@@ -103,6 +103,17 @@ class ScenarioFile(Base):
     scenario: Mapped["Scenario"] = relationship(back_populates="files")
 
 
+class SystemConfig(Base):
+    __tablename__ = "system_config"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    jmeter_home: Mapped[str] = mapped_column(String(1024), nullable=False)
+    data_root: Mapped[str] = mapped_column(String(1024), nullable=False)
+    archive_retention_months: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
+    auto_archive_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
 class TestRun(Base):
     __tablename__ = "test_runs"
 
@@ -119,6 +130,9 @@ class TestRun(Base):
     pid: Mapped[int | None] = mapped_column(Integer)
     error_message: Mapped[str | None] = mapped_column(Text)
     notes: Mapped[str | None] = mapped_column(Text)
+    is_archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime)
+    pre_archive_run_dir: Mapped[str | None] = mapped_column(String(1024))
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     scenario: Mapped["Scenario"] = relationship(back_populates="test_runs")

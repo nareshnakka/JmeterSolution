@@ -5,6 +5,7 @@ import ScenariosPage from './pages/ScenariosPage'
 import TestRunsPage from './pages/TestRunsPage'
 import LiveDashboard from './pages/LiveDashboard'
 import ComparePage from './pages/ComparePage'
+import ConfigPage from './pages/ConfigPage'
 
 export default function App() {
   return (
@@ -17,6 +18,7 @@ export default function App() {
           <NavLink to="/scenarios">All Scenarios</NavLink>
           <NavLink to="/runs">Test Runs</NavLink>
           <NavLink to="/compare">Compare</NavLink>
+          <NavLink to="/config">Configuration</NavLink>
         </nav>
       </aside>
       <main className="main">
@@ -26,6 +28,7 @@ export default function App() {
           <Route path="/runs" element={<TestRunsPage />} />
           <Route path="/live/:runId" element={<LiveDashboard />} />
           <Route path="/compare" element={<ComparePage />} />
+          <Route path="/config" element={<ConfigPage />} />
         </Routes>
       </main>
     </div>

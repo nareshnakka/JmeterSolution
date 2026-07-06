@@ -139,6 +139,8 @@ class TestRunOut(BaseModel):
     log_path: str | None
     error_message: str | None
     notes: str | None
+    is_archived: bool = False
+    archived_at: datetime | None = None
     created_at: datetime
     # Enriched fields (optional)
     scenario_name: str | None = None
@@ -228,3 +230,48 @@ class TestRunLogsOut(BaseModel):
     offset: int
     size: int
     complete: bool
+
+
+class SystemConfigOut(BaseModel):
+    jmeter_home: str
+    data_root: str
+    archive_retention_months: int
+    auto_archive_enabled: bool
+    jmeter_found: bool
+    updated_at: datetime | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class SystemConfigUpdate(BaseModel):
+    jmeter_home: str
+    data_root: str
+    archive_retention_months: int = Field(default=3, ge=1, le=120)
+    auto_archive_enabled: bool = True
+
+
+class ArchiveRunItem(BaseModel):
+    id: int
+    scenario_name: str | None = None
+    release_name: str | None = None
+    build_name: str | None = None
+    application_name: str | None = None
+    status: TestRunStatus
+    finished_at: datetime | None
+    is_archived: bool
+    archived_at: datetime | None
+    run_dir: str | None
+
+
+class ArchiveActionRequest(BaseModel):
+    test_run_ids: list[int] = Field(..., min_length=1)
+
+
+class ArchiveActionOut(BaseModel):
+    succeeded: list[int]
+    failed: list[TestRunDeleteFailure] = Field(default_factory=list)
+
+
+class AutoArchiveOut(BaseModel):
+    archived: list[int]
+    retention_months: int

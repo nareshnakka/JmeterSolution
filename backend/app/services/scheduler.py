@@ -1,13 +1,15 @@
-"""APScheduler integration for scheduled test runs."""
+"""APScheduler integration for scheduled test runs and auto-archive."""
 
 from datetime import datetime
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
 from app.models import TestRun, TestRunStatus, TestRunType
+from app.services.archive import auto_archive_old_runs
 from app.services.jmeter_runner import run_manager
 
 scheduler = AsyncIOScheduler()
@@ -17,6 +19,12 @@ def start_scheduler() -> None:
     if not scheduler.running:
         scheduler.start()
         _restore_scheduled_runs()
+        scheduler.add_job(
+            _run_auto_archive_job,
+            trigger=CronTrigger(hour=2, minute=0),
+            id="auto_archive_runs",
+            replace_existing=True,
+        )
 
 
 def shutdown_scheduler() -> None:
@@ -55,6 +63,14 @@ def _restore_scheduled_runs() -> None:
         )
         for run in runs:
             schedule_test_run(run.id, run.scheduled_at)
+    finally:
+        db.close()
+
+
+def _run_auto_archive_job() -> None:
+    db = SessionLocal()
+    try:
+        auto_archive_old_runs(db)
     finally:
         db.close()
 

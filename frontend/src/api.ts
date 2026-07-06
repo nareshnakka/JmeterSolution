@@ -141,4 +141,38 @@ export const api = {
       body: JSON.stringify({ test_run_ids: ids }),
     }),
   downloadUrl: (runId: number, file: string) => `/api/test-runs/${runId}/download?file=${encodeURIComponent(file)}`,
+
+  getConfig: () => request<import('./types').SystemConfig>('/config'),
+  saveConfig: (body: {
+    jmeter_home: string
+    data_root: string
+    archive_retention_months: number
+    auto_archive_enabled: boolean
+  }) =>
+    request<import('./types').SystemConfig>('/config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  listArchiveRuns: (archivedOnly = false, includeArchived = true) => {
+    const params = new URLSearchParams()
+    if (archivedOnly) params.set('archived_only', 'true')
+    if (!includeArchived) params.set('include_archived', 'false')
+    const qs = params.toString()
+    return request<import('./types').ArchiveRunItem[]>(`/config/archive-runs${qs ? `?${qs}` : ''}`)
+  },
+  archiveRuns: (ids: number[]) =>
+    request<import('./types').ArchiveActionResult>('/config/archive', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ test_run_ids: ids }),
+    }),
+  restoreRuns: (ids: number[]) =>
+    request<import('./types').ArchiveActionResult>('/config/restore', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ test_run_ids: ids }),
+    }),
+  runAutoArchive: () =>
+    request<{ archived: number[]; retention_months: number }>('/config/auto-archive', { method: 'POST' }),
 }

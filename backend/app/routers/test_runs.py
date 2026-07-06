@@ -70,9 +70,12 @@ def list_test_runs(
     release_id: int | None = None,
     build_id: int | None = None,
     status: TestRunStatus | None = None,
+    include_archived: bool = False,
     db: Session = Depends(get_db),
 ):
     q = db.query(TestRun).order_by(TestRun.created_at.desc())
+    if not include_archived:
+        q = q.filter(TestRun.is_archived.is_(False))
     if status:
         q = q.filter(TestRun.status == status)
     runs = q.limit(200).all()
