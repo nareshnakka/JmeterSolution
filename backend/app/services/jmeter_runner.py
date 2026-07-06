@@ -21,6 +21,12 @@ from app.services.host_resources import (
     load_host_resources,
     save_host_resources,
 )
+from app.services.process_utils import (
+    ensure_jmeter_stopped,
+    is_process_alive,
+    kill_process_tree,
+    resolve_jmeter_pid,
+)
 from app.services.storage import (
     collect_run_artifacts,
     migrate_legacy_dependencies,
@@ -36,6 +42,7 @@ class RunManager:
     def __init__(self) -> None:
         self._aggregators: dict[int, MetricsAggregator] = {}
         self._processes: dict[int, subprocess.Popen] = {}
+        self._jmeter_pids: dict[int, int] = {}
         self._tail_tasks: dict[int, asyncio.Task] = {}
         self._resource_tasks: dict[int, asyncio.Task] = {}
         self._ws_subscribers: dict[int, set] = defaultdict(set)
@@ -136,7 +143,10 @@ class RunManager:
             creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0,
         )
         self._processes[test_run.id] = proc
-        test_run.pid = proc.pid
+        await asyncio.sleep(0.75)
+        jmeter_pid = resolve_jmeter_pid(proc.pid)
+        self._jmeter_pids[test_run.id] = jmeter_pid
+        test_run.pid = jmeter_pid
         db.commit()
 
         loop = asyncio.get_event_loop()
@@ -163,7 +173,7 @@ class RunManager:
 
         loop = asyncio.get_event_loop()
         try:
-            while proc.poll() is None:
+            while self._is_run_active(run_id, proc):
                 await loop.run_in_executor(
                     None, append_host_sample, run_path, started_at, samples
                 )
@@ -187,7 +197,7 @@ class RunManager:
         agg = self._aggregators[run_id]
         last_size = 0
 
-        while proc.poll() is None:
+        while self._is_run_active(run_id, proc):
             if jtl_path.exists():
                 size = jtl_path.stat().st_size
                 if size > last_size:
@@ -244,33 +254,87 @@ class RunManager:
         from app.services.run_queue import process_run_queue
 
         await process_run_queue()
+        self._finalize_run_process(run_id)
 
-    def cancel_run(self, run_id: int) -> bool:
+    def _refresh_jmeter_pid(self, run_id: int, proc: subprocess.Popen) -> int | None:
+        jmeter_pid = self._jmeter_pids.get(run_id)
+        if jmeter_pid and is_process_alive(jmeter_pid):
+            return jmeter_pid
+        refreshed = resolve_jmeter_pid(proc.pid)
+        if refreshed > 0:
+            self._jmeter_pids[run_id] = refreshed
+            return refreshed
+        return jmeter_pid
+
+    def _is_run_active(self, run_id: int, proc: subprocess.Popen) -> bool:
+        jmeter_pid = self._refresh_jmeter_pid(run_id, proc)
+        if jmeter_pid and is_process_alive(jmeter_pid):
+            return True
+        return proc.poll() is None
+
+    def _finalize_run_process(self, run_id: int) -> None:
+        """Ensure JMeter/Java is dead and drop process handles after a run ends."""
+        proc = self._processes.pop(run_id, None)
+        jmeter_pid = self._jmeter_pids.pop(run_id, None)
+        root_pid = proc.pid if proc else 0
+        if root_pid or jmeter_pid:
+            ensure_jmeter_stopped(root_pid, jmeter_pid)
+
+        resource_task = self._resource_tasks.pop(run_id, None)
+        if resource_task and not resource_task.done():
+            resource_task.cancel()
+
+    def _force_stop_jmeter(self, run_id: int, fallback_pid: int | None = None) -> bool:
         proc = self._processes.get(run_id)
+        jmeter_pid = self._jmeter_pids.get(run_id) or fallback_pid
+        root_pid = proc.pid if proc else 0
+
+        task = self._tail_tasks.get(run_id)
+        if task and not task.done():
+            task.cancel()
+
+        if root_pid <= 0 and not jmeter_pid:
+            return False
+
+        if root_pid > 0:
+            kill_process_tree(root_pid, force=True)
+        if jmeter_pid and jmeter_pid != root_pid:
+            kill_process_tree(jmeter_pid, force=True)
+        ensure_jmeter_stopped(root_pid, jmeter_pid)
+
         if proc and proc.poll() is None:
-            proc.terminate()
             try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
                 proc.kill()
                 proc.wait(timeout=3)
-            agg = self._aggregators.get(run_id)
-            if agg:
-                agg.status = TestRunStatus.CANCELLED
-            return True
-        return False
+            except (ProcessLookupError, subprocess.TimeoutExpired, OSError):
+                pass
+
+        agg = self._aggregators.get(run_id)
+        if agg and agg.status == TestRunStatus.RUNNING:
+            agg.status = TestRunStatus.CANCELLED
+
+        self._processes.pop(run_id, None)
+        self._jmeter_pids.pop(run_id, None)
+        resource_task = self._resource_tasks.pop(run_id, None)
+        if resource_task and not resource_task.done():
+            resource_task.cancel()
+        return True
+
+    def cancel_run(self, run_id: int, fallback_pid: int | None = None) -> bool:
+        return self._force_stop_jmeter(run_id, fallback_pid)
 
     def cleanup_run(self, run_id: int) -> None:
         """Stop process/tail task and drop in-memory state for a test run."""
-        self.cancel_run(run_id)
+        self._force_stop_jmeter(run_id)
         task = self._tail_tasks.pop(run_id, None)
         if task and not task.done():
             task.cancel()
         resource_task = self._resource_tasks.pop(run_id, None)
         if resource_task and not resource_task.done():
             resource_task.cancel()
-        self._aggregators.pop(run_id, None)
         self._processes.pop(run_id, None)
+        self._jmeter_pids.pop(run_id, None)
+        self._aggregators.pop(run_id, None)
         self._ws_subscribers.pop(run_id, None)
 
 

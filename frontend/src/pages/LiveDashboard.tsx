@@ -9,6 +9,7 @@ import HostResourceChart from '../components/HostResourceChart'
 import { useToast } from '../components/Toast'
 import type { ErrorSample, LiveMetrics, TestRun, TransactionMetric } from '../types'
 import { maxTimeFromPoints, timelineScaleForSeconds } from '../utils/timeline'
+import { chartTheme } from '../utils/chartTheme'
 
 const METRICS_POLL_MS = 10_000
 
@@ -396,22 +397,22 @@ export default function LiveDashboard() {
             {usersChartData.length > 0 ? (
               <ResponsiveContainer>
                 <LineChart data={usersChartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#2d3a4f" />
+                  <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
                   <XAxis
                     dataKey="t"
-                    stroke="#8b9cb3"
+                    stroke={chartTheme.axis}
                     tickFormatter={(t) => usersTimeline.formatValue(Number(t))}
                     label={{ value: usersTimeline.axisLabel, position: 'insideBottom', offset: -5 }}
                   />
-                  <YAxis stroke="#8b9cb3" allowDecimals={false} />
+                  <YAxis stroke={chartTheme.axis} allowDecimals={false} />
                   <Tooltip
-                    contentStyle={{ background: '#1a2332', border: '1px solid #2d3a4f' }}
+                    contentStyle={{ background: chartTheme.tooltipBg, border: `1px solid ${chartTheme.tooltipBorder}` }}
                     labelFormatter={(label) => usersTimeline.formatWithUnit(Number(label))}
                   />
                   <Line
                     type="monotone"
                     dataKey="users"
-                    stroke="#22c55e"
+                    stroke={chartTheme.users}
                     dot={false}
                     name="Active Users"
                     isAnimationActive={false}
@@ -443,17 +444,17 @@ export default function LiveDashboard() {
             {graphData.length > 0 ? (
               <ResponsiveContainer>
                 <LineChart>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#2d3a4f" />
+                  <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
                   <XAxis
                     dataKey="t"
                     type="number"
-                    stroke="#8b9cb3"
+                    stroke={chartTheme.axis}
                     tickFormatter={(t) => responseTimeline.formatValue(Number(t))}
                     label={{ value: responseTimeline.axisLabel, position: 'insideBottom', offset: -5 }}
                   />
-                  <YAxis stroke="#8b9cb3" unit=" ms" />
+                  <YAxis stroke={chartTheme.axis} unit=" ms" />
                   <Tooltip
-                    contentStyle={{ background: '#1a2332', border: '1px solid #2d3a4f' }}
+                    contentStyle={{ background: chartTheme.tooltipBg, border: `1px solid ${chartTheme.tooltipBorder}` }}
                     labelFormatter={(label) => responseTimeline.formatWithUnit(Number(label))}
                   />
                   <Legend />
@@ -464,7 +465,7 @@ export default function LiveDashboard() {
                       type="monotone"
                       dataKey="avg_ms"
                       name={s.label}
-                      stroke={['#3b82f6', '#f59e0b', '#22c55e', '#ef4444', '#a855f7'][i % 5]}
+                      stroke={chartTheme.series[i % chartTheme.series.length]}
                       dot={false}
                       isAnimationActive={false}
                     />
@@ -504,17 +505,17 @@ export default function LiveDashboard() {
           {hasErrorsGraphPoints ? (
             <ResponsiveContainer>
               <LineChart>
-                <CartesianGrid strokeDasharray="3 3" stroke="#2d3a4f" />
+                <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
                 <XAxis
                   dataKey="t"
                   type="number"
-                  stroke="#8b9cb3"
+                  stroke={chartTheme.axis}
                   tickFormatter={(t) => errorsTimeline.formatValue(Number(t))}
                   label={{ value: errorsTimeline.axisLabel, position: 'insideBottom', offset: -5 }}
                 />
-                <YAxis stroke="#8b9cb3" allowDecimals={false} />
+                <YAxis stroke={chartTheme.axis} allowDecimals={false} />
                 <Tooltip
-                  contentStyle={{ background: '#1a2332', border: '1px solid #2d3a4f' }}
+                  contentStyle={{ background: chartTheme.tooltipBg, border: `1px solid ${chartTheme.tooltipBorder}` }}
                   labelFormatter={(label) => errorsTimeline.formatWithUnit(Number(label))}
                 />
                 <Legend />
@@ -525,7 +526,7 @@ export default function LiveDashboard() {
                     type="monotone"
                     dataKey="errors"
                     name={s.label}
-                    stroke={['#ef4444', '#f97316', '#f59e0b', '#dc2626', '#b91c1c'][i % 5]}
+                    stroke={chartTheme.errorSeries[i % chartTheme.errorSeries.length]}
                     dot={false}
                     isAnimationActive={false}
                   />

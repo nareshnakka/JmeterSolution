@@ -498,7 +498,7 @@ async def stop_scenario_run(scenario_id: int, db: Session = Depends(get_db)):
     if not run:
         raise HTTPException(404, "No active run for this scenario")
     if run.status == TestRunStatus.RUNNING:
-        run_manager.cancel_run(run.id)
+        run_manager.cancel_run(run.id, run.pid)
     run.status = TestRunStatus.CANCELLED
     run.finished_at = datetime.utcnow()
     db.commit()

@@ -180,7 +180,7 @@ def _delete_test_run_record(run: TestRun, db: Session) -> None:
     if run.status == TestRunStatus.SCHEDULED:
         unschedule_test_run(run.id)
     elif run.status in (TestRunStatus.RUNNING, TestRunStatus.PENDING):
-        run_manager.cancel_run(run.id)
+        run_manager.cancel_run(run.id, run.pid)
 
     run_manager.cleanup_run(run.id)
 
@@ -222,7 +222,7 @@ async def cancel_run(run_id: int, db: Session = Depends(get_db)):
     if run.status == TestRunStatus.SCHEDULED:
         unschedule_test_run(run_id)
     elif run.status == TestRunStatus.RUNNING:
-        run_manager.cancel_run(run_id)
+        run_manager.cancel_run(run_id, run.pid)
     run.status = TestRunStatus.CANCELLED
     run.finished_at = datetime.utcnow()
     db.commit()

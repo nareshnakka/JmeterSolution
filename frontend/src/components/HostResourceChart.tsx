@@ -12,6 +12,7 @@ import {
 import { api } from '../api'
 import type { HostResources } from '../types'
 import { maxTimeFromPoints, timelineScaleForSeconds } from '../utils/timeline'
+import { chartTheme } from '../utils/chartTheme'
 
 const RESOURCE_POLL_MS = 20_000
 
@@ -77,18 +78,18 @@ export default function HostResourceChart({ runId, isRunning }: HostResourceChar
         {chartData.length > 0 ? (
           <ResponsiveContainer>
             <LineChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#2d3a4f" />
+              <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
               <XAxis
                 dataKey="t"
                 type="number"
-                stroke="#8b9cb3"
+                stroke={chartTheme.axis}
                 domain={['dataMin', 'dataMax']}
                 tickFormatter={(t) => timeline.formatValue(Number(t))}
                 label={{ value: timeline.axisLabel, position: 'insideBottom', offset: -5 }}
               />
               <YAxis
                 yAxisId="left"
-                stroke="#3b82f6"
+                stroke={chartTheme.cpu}
                 domain={[0, 100]}
                 unit="%"
                 label={{ value: 'CPU %', angle: -90, position: 'insideLeft' }}
@@ -96,13 +97,13 @@ export default function HostResourceChart({ runId, isRunning }: HostResourceChar
               <YAxis
                 yAxisId="right"
                 orientation="right"
-                stroke="#22c55e"
+                stroke={chartTheme.memory}
                 domain={[0, 100]}
                 unit="%"
                 label={{ value: 'Memory %', angle: 90, position: 'insideRight' }}
               />
               <Tooltip
-                contentStyle={{ background: '#1a2332', border: '1px solid #2d3a4f' }}
+                contentStyle={{ background: chartTheme.tooltipBg, border: `1px solid ${chartTheme.tooltipBorder}` }}
                 labelFormatter={(label) => timeline.formatWithUnit(Number(label))}
                 formatter={(value: number, name: string) => [`${value}%`, name]}
               />
@@ -112,7 +113,7 @@ export default function HostResourceChart({ runId, isRunning }: HostResourceChar
                 type="monotone"
                 dataKey="cpu_percent"
                 name="CPU %"
-                stroke="#3b82f6"
+                stroke={chartTheme.cpu}
                 dot={false}
                 isAnimationActive={false}
               />
@@ -121,7 +122,7 @@ export default function HostResourceChart({ runId, isRunning }: HostResourceChar
                 type="monotone"
                 dataKey="memory_percent"
                 name="Memory %"
-                stroke="#22c55e"
+                stroke={chartTheme.memory}
                 dot={false}
                 isAnimationActive={false}
               />
