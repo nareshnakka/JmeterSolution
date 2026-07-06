@@ -31,7 +31,7 @@ export default function LiveDashboard() {
   const [graphData, setGraphData] = useState<GraphSeries[]>([])
   const [graphMode, setGraphMode] = useState<'individual' | 'cumulative'>('cumulative')
   const [errorsGraphData, setErrorsGraphData] = useState<ErrorGraphSeries[]>([])
-  const [errorsGraphMode, setErrorsGraphMode] = useState<'individual' | 'cumulative'>('cumulative')
+  const [errorsGraphMode, setErrorsGraphMode] = useState<'individual' | 'all'>('all')
   const [errorFilter, setErrorFilter] = useState('')
   const [displayedErrors, setDisplayedErrors] = useState<ErrorSample[]>([])
   const [errorsLoading, setErrorsLoading] = useState(false)
@@ -68,7 +68,7 @@ export default function LiveDashboard() {
     setDisplayedErrors([])
     setSelectedLabels(new Set())
     setGraphMode('cumulative')
-    setErrorsGraphMode('cumulative')
+    setErrorsGraphMode('all')
     setErrorFilter('')
     setRefreshGeneration(0)
     skipSearchRefreshRef.current = true
@@ -115,12 +115,12 @@ export default function LiveDashboard() {
     }
   }, [id, selectedLabels])
 
-  const loadErrorsGraph = useCallback(async (cumulative: boolean) => {
-    const labels = cumulative ? ['ALL'] : Array.from(selectedLabels)
-    if (!cumulative && labels.length === 0) return
-    setErrorsGraphMode(cumulative ? 'cumulative' : 'individual')
+  const loadErrorsGraph = useCallback(async (allLabels: boolean) => {
+    const labels = allLabels ? ['ALL'] : Array.from(selectedLabels)
+    if (!allLabels && labels.length === 0) return
+    setErrorsGraphMode(allLabels ? 'all' : 'individual')
     try {
-      const data = await api.getErrorsGraph(id, labels, cumulative)
+      const data = await api.getErrorsGraph(id, labels)
       setErrorsGraphData(data.series)
     } catch {
       /* error graph data may not exist yet */
@@ -130,7 +130,7 @@ export default function LiveDashboard() {
   const selectedLabelsKey = useMemo(() => Array.from(selectedLabels).sort().join('\0'), [selectedLabels])
   const graphIsActive = graphMode === 'cumulative' || selectedLabels.size > 0
   const errorsGraphIsActive =
-    errorsGraphMode === 'cumulative' ||
+    errorsGraphMode === 'all' ||
     selectedLabels.size > 0 ||
     (metrics?.total_errors ?? 0) > 0
 
@@ -183,11 +183,11 @@ export default function LiveDashboard() {
       }
 
       if (errorsGraphIsActiveRef.current) {
-        const cumulative = errorsGraphMode === 'cumulative'
-        const labels = cumulative ? ['ALL'] : Array.from(selectedLabels)
-        if (cumulative || labels.length > 0) {
+        const allLabels = errorsGraphMode === 'all'
+        const labels = allLabels ? ['ALL'] : Array.from(selectedLabels)
+        if (allLabels || labels.length > 0) {
           secondary.push(
-            api.getErrorsGraph(id, labels, cumulative)
+            api.getErrorsGraph(id, labels)
               .then((data) => setErrorsGraphData(data.series))
               .catch(() => {})
           )
@@ -243,7 +243,7 @@ export default function LiveDashboard() {
   }, [graphMode, selectedLabelsKey, loadGraph])
 
   useEffect(() => {
-    if (errorsGraphMode === 'cumulative') {
+    if (errorsGraphMode === 'all') {
       void loadErrorsGraph(true)
     } else if (selectedLabels.size > 0) {
       void loadErrorsGraph(false)
@@ -303,7 +303,7 @@ export default function LiveDashboard() {
     if (graphMode !== 'cumulative') {
       setGraphData([])
     }
-    if (errorsGraphMode !== 'cumulative') {
+    if (errorsGraphMode !== 'all') {
       setErrorsGraphData([])
     }
   }, [errorsGraphMode, graphMode])
@@ -390,7 +390,7 @@ export default function LiveDashboard() {
         selectedLabels={selectedLabels}
         totalErrors={metrics?.total_errors ?? 0}
         refreshIntervalSeconds={refreshIntervalSeconds}
-        onCumulativeErrors={() => void loadErrorsGraph(true)}
+        onAllErrors={() => void loadErrorsGraph(true)}
         onGraphSelectedErrors={() => void loadErrorsGraph(false)}
       />
 

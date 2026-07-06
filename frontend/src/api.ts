@@ -158,10 +158,9 @@ export const api = {
       `/test-runs/${runId}/graph?${params}`
     )
   },
-  getErrorsGraph: (runId: number, labels: string[], cumulative = false) => {
+  getErrorsGraph: (runId: number, labels: string[]) => {
     const params = new URLSearchParams()
     labels.forEach((l) => params.append('labels', l))
-    if (cumulative) params.set('cumulative', 'true')
     return request<{ mode: string; series: { label: string; points: { t: number; errors: number }[] }[] }>(
       `/test-runs/${runId}/errors-graph?${params}`
     )

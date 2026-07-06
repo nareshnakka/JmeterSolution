@@ -233,27 +233,21 @@ class MetricsAggregator:
         labels: list[str] | None = None,
         cumulative: bool = False,
     ) -> dict[str, Any]:
-        def _cumulative_points(raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
-            total = 0
-            points: list[dict[str, Any]] = []
-            for entry in raw:
-                total += entry.get("errors", 0)
-                points.append({"t": entry["t"], "errors": total})
-            return points
+        """Return per-interval error counts (not cumulative). cumulative param is ignored."""
+
+        def _interval_points(raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
+            return [{"t": entry["t"], "errors": entry.get("errors", 0)} for entry in raw]
 
         if labels is None or "ALL" in labels:
-            cumulative = True
-
-        if cumulative:
             return {
-                "mode": "cumulative",
-                "series": [{"label": "ALL", "points": _cumulative_points(self.all_error_series)}],
+                "mode": "all",
+                "series": [{"label": "ALL", "points": _interval_points(self.all_error_series)}],
             }
 
         target_labels = labels or []
         series: list[dict[str, Any]] = []
         for label in target_labels:
-            points = _cumulative_points(self.label_error_series.get(label, []))
+            points = _interval_points(self.label_error_series.get(label, []))
             series.append({"label": label, "points": points})
 
         return {"mode": "individual", "series": series}

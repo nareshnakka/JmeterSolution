@@ -166,11 +166,11 @@ export const ResponseTimeChart = memo(function ResponseTimeChart({
 
 interface ErrorsOverTimeChartProps {
   errorsGraphData: ErrorGraphSeries[]
-  errorsGraphMode: 'individual' | 'cumulative'
+  errorsGraphMode: 'individual' | 'all'
   selectedLabels: Set<string>
   totalErrors: number
   refreshIntervalSeconds: number
-  onCumulativeErrors: () => void
+  onAllErrors: () => void
   onGraphSelectedErrors: () => void
 }
 
@@ -180,7 +180,7 @@ export const ErrorsOverTimeChart = memo(function ErrorsOverTimeChart({
   selectedLabels,
   totalErrors,
   refreshIntervalSeconds,
-  onCumulativeErrors,
+  onAllErrors,
   onGraphSelectedErrors,
 }: ErrorsOverTimeChartProps) {
   const series = useMemo(() => downsampleSeries(errorsGraphData), [errorsGraphData])
@@ -194,11 +194,11 @@ export const ErrorsOverTimeChart = memo(function ErrorsOverTimeChart({
     <div className="card">
       <h2>Errors Over Time</h2>
       <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '-0.25rem' }}>
-        Cumulative error count · auto-loads on open · refreshes every {refreshIntervalSeconds}s
+        Error count per 5s interval · auto-loads on open · refreshes every {refreshIntervalSeconds}s
       </p>
       <div className="toolbar">
-        <button type="button" className="btn" onClick={onCumulativeErrors}>
-          Cumulative Errors
+        <button type="button" className="btn" onClick={onAllErrors}>
+          All Errors
         </button>
         <button
           type="button"
@@ -249,7 +249,7 @@ export const ErrorsOverTimeChart = memo(function ErrorsOverTimeChart({
       </div>
       {errorsGraphMode === 'individual' && selectedLabels.size > 0 && (
         <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '0.5rem' }}>
-          Showing cumulative errors for: {Array.from(selectedLabels).join(', ')}
+          Showing errors per interval for: {Array.from(selectedLabels).join(', ')}
         </p>
       )}
     </div>
