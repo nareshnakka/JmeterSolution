@@ -332,7 +332,8 @@ export default function LiveDashboard() {
 
   const isRunning =
     !stopping &&
-    (metrics?.status === 'running' || metrics?.status === 'pending' || run?.status === 'running' || run?.status === 'pending')
+    !isTerminalStatus(liveStatus) &&
+    (liveStatus === 'running' || liveStatus === 'pending')
 
   const toggleLabel = useCallback((label: string) => {
     setSelectedLabels((prev) => {
@@ -389,10 +390,10 @@ export default function LiveDashboard() {
           Live Dashboard — Run #{id}
           {(metrics || run) && (
             <span
-              className={`badge badge-${stopping ? 'cancelled' : (metrics?.status || run?.status)}`}
+              className={`badge badge-${stopping ? 'cancelled' : liveStatus}`}
               style={{ marginLeft: '0.75rem', verticalAlign: 'middle' }}
             >
-              {stopping ? 'stopping…' : (metrics?.status || run?.status)}
+              {stopping ? 'stopping…' : liveStatus}
             </span>
           )}
         </h1>
@@ -552,14 +553,14 @@ export default function LiveDashboard() {
 
       <JmeterLogConsole
         runId={id}
-        isRunning={metrics?.status === 'running' || run?.status === 'running'}
+        isRunning={!isTerminalStatus(liveStatus) && liveStatus === 'running'}
         refreshIntervalMs={refreshPollMs}
         refreshGeneration={refreshGeneration}
       />
 
       <HostResourceChart
         runId={id}
-        isRunning={metrics?.status === 'running' || run?.status === 'running'}
+        isRunning={!isTerminalStatus(liveStatus) && liveStatus === 'running'}
         refreshIntervalMs={refreshPollMs}
         refreshGeneration={refreshGeneration}
       />
