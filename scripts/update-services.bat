@@ -31,20 +31,14 @@ if errorlevel 1 (
 )
 
 echo ========================================
-echo  JMeter Agent - Update from repository
+echo  JMeter Agent - Force update from repo
 echo ========================================
+echo  Local changes will be discarded.
 echo.
 
 echo Stopping services before update...
 call "%~dp0stop-services.bat"
 echo.
-
-git status --porcelain 2>nul | findstr /V "^??" | findstr "." >nul
-if not errorlevel 1 (
-  echo WARNING: You have local changes. git pull may fail or merge.
-  echo          Commit or stash changes first, or reset local edits.
-  echo.
-)
 
 for /f "delims=" %%b in ('git rev-parse --abbrev-ref HEAD 2^>nul') do set "BRANCH=%%b"
 if not defined BRANCH set "BRANCH=main"
@@ -57,13 +51,23 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo Pulling latest changes ...
-git pull --ff-only origin %BRANCH%
+echo Resetting local tree to match origin/%BRANCH% (discarding local changes) ...
+git reset --hard origin/%BRANCH%
 if errorlevel 1 (
-  echo ERROR: git pull failed. Resolve conflicts and run update again.
+  echo ERROR: git reset failed.
   popd
   exit /b 1
 )
+
+git clean -fd
+if errorlevel 1 (
+  echo ERROR: git clean failed.
+  popd
+  exit /b 1
+)
+
+for /f "delims=" %%h in ('git rev-parse --short HEAD 2^>nul') do set "HEAD=%%h"
+echo Now at commit !HEAD!
 
 echo.
 echo Updating Python dependencies ...
