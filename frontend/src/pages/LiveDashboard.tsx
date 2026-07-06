@@ -29,7 +29,7 @@ export default function LiveDashboard() {
   const [selectedLabels, setSelectedLabels] = useState<Set<string>>(new Set())
   const [labelFilter, setLabelFilter] = useState('')
   const [graphData, setGraphData] = useState<GraphSeries[]>([])
-  const [graphMode, setGraphMode] = useState<'individual' | 'cumulative'>('individual')
+  const [graphMode, setGraphMode] = useState<'individual' | 'cumulative'>('cumulative')
   const [errorsGraphData, setErrorsGraphData] = useState<ErrorGraphSeries[]>([])
   const [errorsGraphMode, setErrorsGraphMode] = useState<'individual' | 'cumulative'>('cumulative')
   const [errorFilter, setErrorFilter] = useState('')
@@ -41,7 +41,7 @@ export default function LiveDashboard() {
 
   const refreshPollMs = refreshIntervalSeconds * 1000
   const refreshInFlightRef = useRef(false)
-  const graphIsActiveRef = useRef(false)
+  const graphIsActiveRef = useRef(true)
   const errorsGraphIsActiveRef = useRef(false)
   const errorSearchRef = useRef('')
   const skipSearchRefreshRef = useRef(true)
@@ -67,7 +67,7 @@ export default function LiveDashboard() {
     setErrorsGraphData([])
     setDisplayedErrors([])
     setSelectedLabels(new Set())
-    setGraphMode('individual')
+    setGraphMode('cumulative')
     setErrorsGraphMode('cumulative')
     setErrorFilter('')
     setRefreshGeneration(0)
@@ -300,11 +300,13 @@ export default function LiveDashboard() {
 
   const clearSelection = useCallback(() => {
     setSelectedLabels(new Set())
-    setGraphData([])
+    if (graphMode !== 'cumulative') {
+      setGraphData([])
+    }
     if (errorsGraphMode !== 'cumulative') {
       setErrorsGraphData([])
     }
-  }, [errorsGraphMode])
+  }, [errorsGraphMode, graphMode])
 
   async function stopTest() {
     if (!isRunning || stopping) return

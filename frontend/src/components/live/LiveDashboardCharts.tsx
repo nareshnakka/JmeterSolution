@@ -96,7 +96,9 @@ export const ResponseTimeChart = memo(function ResponseTimeChart({
     <div className="card">
       <h2>Transaction Response Time</h2>
       <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '-0.25rem' }}>
-        Refreshes every {refreshIntervalSeconds}s when transactions are selected
+        {graphMode === 'cumulative'
+          ? `Cumulative response time · refreshes every ${refreshIntervalSeconds}s`
+          : `Refreshes every ${refreshIntervalSeconds}s when transactions are selected`}
       </p>
       <div className="toolbar">
         <button type="button" className="btn btn-secondary" onClick={onSelectAll}>Select All</button>
@@ -146,7 +148,11 @@ export const ResponseTimeChart = memo(function ResponseTimeChart({
             </LineChart>
           </ResponsiveContainer>
         ) : (
-          <p className="empty">Select transaction(s) to view response time graph</p>
+          <p className="empty">
+            {graphMode === 'cumulative'
+              ? 'Waiting for response time data…'
+              : 'Select transaction(s) to view response time graph'}
+          </p>
         )}
       </div>
       {graphMode === 'individual' && selectedLabels.size > 0 && (
