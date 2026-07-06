@@ -129,6 +129,7 @@ export default function ScenariosPage() {
         name: cloned.name,
         jmx_filename: cloned.jmx_filename,
         tags: cloned.tags ?? [],
+        jmeter_properties: cloned.jmeter_properties ?? [],
         created_at: cloned.created_at,
         last_run_id: undefined,
         last_run_status: undefined,

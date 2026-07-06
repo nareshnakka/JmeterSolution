@@ -60,6 +60,12 @@ def _migrate_schema() -> None:
                     )
                 )
 
+    if "scenarios" in insp.get_table_names():
+        scenario_cols = {c["name"] for c in insp.get_columns("scenarios")}
+        if "jmeter_properties" not in scenario_cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE scenarios ADD COLUMN jmeter_properties TEXT"))
+
 
 def init_db():
     from app import models  # noqa: F401

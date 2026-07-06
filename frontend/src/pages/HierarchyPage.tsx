@@ -2,10 +2,14 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import FilePicker from '../components/FilePicker'
+import JmeterPropertiesEditor, {
+  appendJmeterPropertiesToForm,
+  emptyJmeterProperty,
+} from '../components/JmeterPropertiesEditor'
 import TagInput from '../components/TagInput'
 import { useToast } from '../components/Toast'
 import { localInputToUtcIso, localTimezoneLabel } from '../utils/datetime'
-import type { Application, Build, Release, Scenario } from '../types'
+import type { Application, Build, JmeterProperty, Release, Scenario } from '../types'
 
 export default function HierarchyPage() {
   const navigate = useNavigate()
@@ -27,6 +31,7 @@ export default function HierarchyPage() {
   const [scenarioTags, setScenarioTags] = useState<string[]>([])
   const [jmxFiles, setJmxFiles] = useState<File[]>([])
   const [dependencyFiles, setDependencyFiles] = useState<File[]>([])
+  const [jmeterProperties, setJmeterProperties] = useState<JmeterProperty[]>([emptyJmeterProperty()])
   const [scheduleAt, setScheduleAt] = useState('')
 
   useEffect(() => {
@@ -77,6 +82,7 @@ export default function HierarchyPage() {
     scenarioTags.forEach((t) => form.append('tags', t))
     form.append('jmx', jmxFiles[0])
     dependencyFiles.forEach((f) => form.append('dependencies', f))
+    appendJmeterPropertiesToForm(form, jmeterProperties)
     const s = await api.createScenario(selectedApp.id, form)
     setScenarios((prev) => [s, ...prev])
     toast.success(`Scenario "${s.name}" uploaded successfully`)
@@ -84,6 +90,7 @@ export default function HierarchyPage() {
     setScenarioTags([])
     setJmxFiles([])
     setDependencyFiles([])
+    setJmeterProperties([emptyJmeterProperty()])
   }
 
   async function runNow(scenarioId: number, scenarioName: string) {
@@ -236,6 +243,7 @@ export default function HierarchyPage() {
                 emptyText="No dependency files selected"
               />
             </div>
+            <JmeterPropertiesEditor properties={jmeterProperties} onChange={setJmeterProperties} />
             <button
               className="btn"
               onClick={uploadScenario}

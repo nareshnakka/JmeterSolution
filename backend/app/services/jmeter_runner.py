@@ -15,6 +15,7 @@ from app.config import settings
 from app.database import SessionLocal
 from app.models import Application, Build, Release, Scenario, TestRun, TestRunStatus
 from app.services.jtl_parser import MetricsAggregator, parse_jtl_file
+from app.scenario_properties import jmeter_cli_args, parse_jmeter_properties
 from app.services.host_resources import (
     append_host_sample,
     load_host_resources,
@@ -123,6 +124,9 @@ class RunManager:
             "-t", str(jmx),
             "-l", str(jtl),
             "-j", str(log_file),
+        ]
+        cmd.extend(jmeter_cli_args(parse_jmeter_properties(scenario.jmeter_properties_json)))
+        cmd.extend([
             "-Jjmeter.save.saveservice.output_format=csv",
             "-Jjmeter.save.saveservice.autoflush=true",
             "-Jjmeter.save.saveservice.response_data=true",
@@ -135,7 +139,7 @@ class RunManager:
             f"-JRUN_ID={test_run.id}",
             f"-JJTL_PATH={jtl}",
             f"-JJMETER_LOG={log_file}",
-        ]
+        ])
 
         # Run from the scripts folder — JMX and CSV dependencies live together
         cwd = scripts_dir

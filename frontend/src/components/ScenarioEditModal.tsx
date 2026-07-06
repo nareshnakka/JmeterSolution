@@ -1,9 +1,15 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import FilePicker from './FilePicker'
+import JmeterPropertiesEditor, {
+  appendJmeterPropertiesToForm,
+  jmeterPropertiesEqual,
+  jmeterPropertiesForEditor,
+  normalizeJmeterProperties,
+} from './JmeterPropertiesEditor'
 import TagInput from './TagInput'
 import { useToast } from './Toast'
-import type { ScenarioFile, ScenarioListItem } from '../types'
+import type { JmeterProperty, ScenarioFile, ScenarioListItem } from '../types'
 
 function tagsEqual(a: string[], b: string[]): boolean {
   if (a.length !== b.length) return false
@@ -26,11 +32,40 @@ export default function ScenarioEditModal({ scenario, onClose, onSaved }: Scenar
   const [newDependencies, setNewDependencies] = useState<File[]>([])
   const [existingFiles, setExistingFiles] = useState<ScenarioFile[]>([])
   const [removeFileIds, setRemoveFileIds] = useState<number[]>([])
+  const [jmeterProperties, setJmeterProperties] = useState<JmeterProperty[]>(() =>
+    jmeterPropertiesForEditor(scenario.jmeter_properties)
+  )
+  const [initialJmeterProperties, setInitialJmeterProperties] = useState<JmeterProperty[]>(() =>
+    normalizeJmeterProperties(scenario.jmeter_properties ?? [])
+  )
+  const [propertiesLoading, setPropertiesLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
+    let cancelled = false
+    setPropertiesLoading(true)
     api.listScenarioFiles(scenario.id).then(setExistingFiles).catch(console.error)
+    api.getScenario(scenario.id)
+      .then((detail) => {
+        if (cancelled) return
+        const saved = normalizeJmeterProperties(detail.jmeter_properties ?? [])
+        setJmeterProperties(jmeterPropertiesForEditor(saved))
+        setInitialJmeterProperties(saved)
+      })
+      .catch((err) => {
+        console.error(err)
+        if (!cancelled) {
+          setJmeterProperties(jmeterPropertiesForEditor(scenario.jmeter_properties))
+          setInitialJmeterProperties(normalizeJmeterProperties(scenario.jmeter_properties ?? []))
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setPropertiesLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
   }, [scenario.id])
 
   const visibleDependencies = existingFiles.filter(
@@ -41,7 +76,8 @@ export default function ScenarioEditModal({ scenario, onClose, onSaved }: Scenar
   const tagsChanged = !tagsEqual(tags, scenario.tags)
   const hasJmxChange = jmxFiles.length > 0
   const hasDepChanges = newDependencies.length > 0 || removeFileIds.length > 0
-  const hasAnyChange = nameChanged || tagsChanged || hasJmxChange || hasDepChanges
+  const propertiesChanged = !jmeterPropertiesEqual(jmeterProperties, initialJmeterProperties)
+  const hasAnyChange = nameChanged || tagsChanged || hasJmxChange || hasDepChanges || propertiesChanged
 
   function markFileRemoved(fileId: number) {
     setRemoveFileIds((prev) => [...prev, fileId])
@@ -69,6 +105,10 @@ export default function ScenarioEditModal({ scenario, onClose, onSaved }: Scenar
       if (jmxFiles[0]) form.append('jmx', jmxFiles[0])
       newDependencies.forEach((f) => form.append('dependencies', f))
       removeFileIds.forEach((id) => form.append('remove_file_ids', String(id)))
+      if (propertiesChanged) {
+        form.append('update_jmeter_properties', 'true')
+        appendJmeterPropertiesToForm(form, jmeterProperties)
+      }
       await api.updateScenario(scenario.id, form)
       toast.success(`Scenario "${scenario.name}" saved successfully`)
       onSaved()
@@ -120,6 +160,13 @@ export default function ScenarioEditModal({ scenario, onClose, onSaved }: Scenar
           emptyText="Keep existing JMX file"
         />
 
+        <JmeterPropertiesEditor
+          properties={jmeterProperties}
+          onChange={setJmeterProperties}
+          disabled={saving}
+          loading={propertiesLoading}
+        />
+
         <div className="form-row" style={{ marginTop: '1rem' }}>
           <label>Current dependency files</label>
           {visibleDependencies.length === 0 ? (
@@ -158,7 +205,7 @@ export default function ScenarioEditModal({ scenario, onClose, onSaved }: Scenar
           <button type="button" className="btn btn-secondary" onClick={onClose} disabled={saving}>
             Cancel
           </button>
-          <button type="button" className="btn" onClick={save} disabled={saving || !hasAnyChange}>
+          <button type="button" className="btn" onClick={save} disabled={saving || !hasAnyChange || propertiesLoading}>
             {saving ? 'Saving…' : 'Save changes'}
           </button>
         </div>

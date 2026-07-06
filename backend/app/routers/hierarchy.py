@@ -34,6 +34,7 @@ from app.schemas import (
     ScenarioScheduleCreate,
     ScenarioScheduleOut,
 )
+from app.scenario_properties import parse_jmeter_properties, properties_from_form, serialize_jmeter_properties
 from app.services.jmeter_runner import run_manager
 from app.services.scenario_schedule import (
     create_scenario_schedule,
@@ -181,6 +182,7 @@ def _clone_scenario_record(
         tag=source.tag,
         jmx_filename=new_jmx_name,
         description=source.description,
+        jmeter_properties_json=source.jmeter_properties_json,
     )
     db.add(clone)
     db.commit()
@@ -376,6 +378,7 @@ def list_all_scenarios(
                 name=scenario.name,
                 tags=tags,
                 jmx_filename=scenario.jmx_filename,
+                jmeter_properties=parse_jmeter_properties(scenario.jmeter_properties_json),
                 release_id=release_obj.id,
                 release_name=release_obj.name,
                 build_id=build_obj.id,
@@ -559,6 +562,9 @@ async def update_scenario(
     name: str | None = Form(default=None),
     update_tags: bool = Form(default=False),
     tags: list[str] = Form(default=[]),
+    update_jmeter_properties: bool = Form(default=False),
+    property_names: list[str] = Form(default=[]),
+    property_values: list[str] = Form(default=[]),
     jmx: UploadFile | None = File(default=None),
     dependencies: list[UploadFile] = File(default=[]),
     remove_file_ids: list[int] = Form(default=[]),
@@ -572,6 +578,7 @@ async def update_scenario(
     has_changes = (
         name is not None
         or update_tags
+        or update_jmeter_properties
         or has_jmx
         or bool(valid_deps)
         or bool(remove_file_ids)
@@ -587,6 +594,10 @@ async def update_scenario(
 
     if update_tags:
         scenario.tag = _serialize_tags(tags)
+
+    if update_jmeter_properties:
+        props = properties_from_form(property_names, property_values)
+        scenario.jmeter_properties_json = serialize_jmeter_properties(props)
 
     if has_jmx:
         assert jmx is not None and jmx.filename
@@ -648,6 +659,8 @@ async def create_scenario(
     name: str = Form(...),
     tags: list[str] = Form(default=[]),
     description: str | None = Form(None),
+    property_names: list[str] = Form(default=[]),
+    property_values: list[str] = Form(default=[]),
     jmx: UploadFile = File(...),
     dependencies: list[UploadFile] = File(default=[]),
     db: Session = Depends(get_db),
@@ -672,6 +685,9 @@ async def create_scenario(
         tag=_serialize_tags(tags),
         jmx_filename=jmx.filename,
         description=description,
+        jmeter_properties_json=serialize_jmeter_properties(
+            properties_from_form(property_names, property_values)
+        ),
     )
     db.add(scenario)
     db.commit()

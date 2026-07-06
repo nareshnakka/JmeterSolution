@@ -85,6 +85,7 @@ class Scenario(Base):
     tag: Mapped[str | None] = mapped_column(String(128))
     jmx_filename: Mapped[str] = mapped_column(String(512), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
+    jmeter_properties_json: Mapped[str | None] = mapped_column("jmeter_properties", Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     application: Mapped["Application"] = relationship(back_populates="scenarios")

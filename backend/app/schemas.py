@@ -58,6 +58,11 @@ class ApplicationOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class JmeterProperty(BaseModel):
+    name: str
+    value: str = ""
+
+
 class ScenarioOut(BaseModel):
     id: int
     application_id: int
@@ -66,9 +71,35 @@ class ScenarioOut(BaseModel):
     tags: list[str] = Field(default_factory=list)
     jmx_filename: str
     description: str | None
+    jmeter_properties: list[JmeterProperty] = Field(default_factory=list)
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+    @model_validator(mode="before")
+    @classmethod
+    def load_jmeter_properties(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            raw = data.get("jmeter_properties_json") or data.get("jmeter_properties")
+            if isinstance(raw, str):
+                from app.scenario_properties import parse_jmeter_properties
+
+                data = {**data, "jmeter_properties": parse_jmeter_properties(raw)}
+            return data
+        if hasattr(data, "id"):
+            from app.scenario_properties import parse_jmeter_properties
+
+            return {
+                "id": data.id,
+                "application_id": data.application_id,
+                "name": data.name,
+                "tag": data.tag,
+                "jmx_filename": data.jmx_filename,
+                "description": data.description,
+                "created_at": data.created_at,
+                "jmeter_properties": parse_jmeter_properties(data.jmeter_properties_json),
+            }
+        return data
 
     @model_validator(mode="after")
     def extract_tags(self) -> "ScenarioOut":
@@ -98,6 +129,7 @@ class ScenarioListItem(BaseModel):
     name: str
     tags: list[str] = Field(default_factory=list)
     jmx_filename: str
+    jmeter_properties: list[JmeterProperty] = Field(default_factory=list)
     release_id: int
     release_name: str
     build_id: int

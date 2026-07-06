@@ -22,6 +22,11 @@ export interface Application {
   created_at: string
 }
 
+export interface JmeterProperty {
+  name: string
+  value: string
+}
+
 export interface Scenario {
   id: number
   application_id: number
@@ -30,6 +35,7 @@ export interface Scenario {
   tags?: string[]
   jmx_filename: string
   description?: string
+  jmeter_properties?: JmeterProperty[]
   created_at: string
 }
 
@@ -38,6 +44,7 @@ export interface ScenarioListItem {
   name: string
   tags: string[]
   jmx_filename: string
+  jmeter_properties?: JmeterProperty[]
   release_id: number
   release_name: string
   build_id: number

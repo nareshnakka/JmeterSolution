@@ -876,6 +876,42 @@ tr.selected td { background: var(--brand-light); }
   border-bottom: none;
 }
 
+.jmeter-props-table {
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
+  background: var(--surface2);
+  overflow: hidden;
+}
+
+.jmeter-props-header,
+.jmeter-props-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+}
+
+.jmeter-props-header {
+  font-size: 0.75rem;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.jmeter-props-row {
+  border-bottom: 1px solid var(--border);
+}
+
+.jmeter-props-row:last-child {
+  border-bottom: none;
+}
+
+.jmeter-props-row input {
+  width: 100%;
+  min-width: 0;
+}
+
 .modal-error {
   color: var(--danger);
   font-size: 0.8125rem;
