@@ -5,6 +5,7 @@ import {
 } from 'recharts'
 import { api } from '../api'
 import JmeterLogConsole from '../components/JmeterLogConsole'
+import HostResourceChart from '../components/HostResourceChart'
 import { useToast } from '../components/Toast'
 import type { ErrorSample, LiveMetrics, TestRun, TransactionMetric } from '../types'
 import { maxTimeFromPoints, timelineScaleForSeconds } from '../utils/timeline'
@@ -634,6 +635,11 @@ export default function LiveDashboard() {
       </div>
 
       <JmeterLogConsole
+        runId={id}
+        isRunning={metrics?.status === 'running' || run?.status === 'running'}
+      />
+
+      <HostResourceChart
         runId={id}
         isRunning={metrics?.status === 'running' || run?.status === 'running'}
       />

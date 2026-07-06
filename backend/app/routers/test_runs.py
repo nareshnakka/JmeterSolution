@@ -17,17 +17,22 @@ from app.schemas import (
     CompareRequest,
     CompareRunSummary,
     ErrorSample,
+    HostResourcesOut,
     TestRunCreate,
     TestRunDeleteFailure,
     TestRunDeleteOut,
     TestRunDeleteRequest,
     TestRunLogsOut,
     TestRunOut,
+    TestRunQueueOut,
     TestRunSchedule,
+    QueuedRunItem,
     TransactionMetric,
 )
 from app.services.jmeter_runner import run_manager
+from app.services.host_resources import load_host_resources
 from app.services.jtl_parser import parse_jtl_file
+from app.services.run_queue import try_start_or_queue
 from app.services.scheduler import schedule_test_run, unschedule_test_run
 
 router = APIRouter(prefix="/api/test-runs", tags=["test-runs"])
@@ -96,6 +101,29 @@ def list_test_runs(
     return enriched
 
 
+@router.get("/queue", response_model=TestRunQueueOut)
+def get_run_queue(db: Session = Depends(get_db)):
+    running = (
+        db.query(TestRun)
+        .filter(TestRun.status == TestRunStatus.RUNNING, TestRun.is_archived.is_(False))
+        .order_by(TestRun.started_at.asc())
+        .first()
+    )
+    pending = (
+        db.query(TestRun)
+        .filter(TestRun.status == TestRunStatus.PENDING, TestRun.is_archived.is_(False))
+        .order_by(TestRun.created_at.asc())
+        .all()
+    )
+    return TestRunQueueOut(
+        running=_enrich_run(running, db) if running else None,
+        queued=[
+            QueuedRunItem(**_enrich_run(run, db).model_dump(), queue_position=index + 1)
+            for index, run in enumerate(pending)
+        ],
+    )
+
+
 @router.get("/{run_id}", response_model=TestRunOut)
 def get_test_run(run_id: int, db: Session = Depends(get_db)):
     run = db.get(TestRun, run_id)
@@ -120,7 +148,7 @@ async def start_adhoc_run(body: TestRunCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(run)
 
-    await run_manager.start_run(db, run)
+    await try_start_or_queue(db, run)
     db.refresh(run)
     return _enrich_run(run, db)
 
@@ -185,16 +213,23 @@ def delete_test_runs(body: TestRunDeleteRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/{run_id}/cancel")
-def cancel_run(run_id: int, db: Session = Depends(get_db)):
+async def cancel_run(run_id: int, db: Session = Depends(get_db)):
     run = db.get(TestRun, run_id)
     if not run:
         raise HTTPException(404, "Test run not found")
     if run.status not in (TestRunStatus.RUNNING, TestRunStatus.PENDING, TestRunStatus.SCHEDULED):
         raise HTTPException(400, "Run cannot be cancelled")
-    run_manager.cancel_run(run_id)
+    if run.status == TestRunStatus.SCHEDULED:
+        unschedule_test_run(run_id)
+    elif run.status == TestRunStatus.RUNNING:
+        run_manager.cancel_run(run_id)
     run.status = TestRunStatus.CANCELLED
     run.finished_at = datetime.utcnow()
     db.commit()
+
+    from app.services.run_queue import process_run_queue
+
+    await process_run_queue()
     return {"ok": True}
 
 
@@ -232,6 +267,17 @@ def _aggregator_for_run(run: TestRun):
     if file_agg and (agg is None or len(file_agg.samples) >= len(agg.samples)):
         return file_agg
     return agg
+
+
+@router.get("/{run_id}/resources", response_model=HostResourcesOut)
+def get_run_resources(run_id: int, db: Session = Depends(get_db)):
+    run = db.get(TestRun, run_id)
+    if not run:
+        raise HTTPException(404, "Test run not found")
+    if not run.run_dir:
+        return HostResourcesOut(interval_seconds=20, samples=[])
+    data = load_host_resources(Path(run.run_dir))
+    return HostResourcesOut.model_validate(data)
 
 
 @router.get("/{run_id}/metrics")

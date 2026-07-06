@@ -3,6 +3,7 @@ import { ToastProvider } from './components/Toast'
 import HierarchyPage from './pages/HierarchyPage'
 import ScenariosPage from './pages/ScenariosPage'
 import TestRunsPage from './pages/TestRunsPage'
+import QueuePage from './pages/QueuePage'
 import LiveDashboard from './pages/LiveDashboard'
 import ComparePage from './pages/ComparePage'
 import ConfigPage from './pages/ConfigPage'
@@ -16,6 +17,7 @@ export default function App() {
         <nav>
           <NavLink to="/" end>Releases &amp; Scripts</NavLink>
           <NavLink to="/scenarios">All Scenarios</NavLink>
+          <NavLink to="/queue">Run Queue</NavLink>
           <NavLink to="/runs">Test Runs</NavLink>
           <NavLink to="/compare">Compare</NavLink>
           <NavLink to="/config">Configuration</NavLink>
@@ -25,6 +27,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<HierarchyPage />} />
           <Route path="/scenarios" element={<ScenariosPage />} />
+          <Route path="/queue" element={<QueuePage />} />
           <Route path="/runs" element={<TestRunsPage />} />
           <Route path="/live/:runId" element={<LiveDashboard />} />
           <Route path="/compare" element={<ComparePage />} />

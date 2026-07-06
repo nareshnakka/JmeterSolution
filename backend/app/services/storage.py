@@ -2,6 +2,7 @@
 
 import re
 import shutil
+from datetime import datetime
 from pathlib import Path
 
 from app.config import settings
@@ -58,8 +59,54 @@ def resolve_scenario_file_path(
     return scenario_uploads_dir(release, build, application) / filename
 
 
-def test_run_dir(release: Release, build: Build, application: Application, run_id: int) -> Path:
-    return application_dir(release, build, application) / "runs" / str(run_id)
+def scenario_dir(release: Release, build: Build, application: Application, scenario: Scenario) -> Path:
+    """Per-scenario folder under the application."""
+    label = f"{scenario.id}-{_safe_name(scenario.name)}"
+    return application_dir(release, build, application) / "scenarios" / label
+
+
+def test_run_dir(
+    release: Release,
+    build: Build,
+    application: Application,
+    scenario: Scenario,
+    run_id: int,
+) -> Path:
+    """Each test run stores all artifacts under its scenario: .../scenarios/{id-name}/runs/{run_id}/"""
+    return scenario_dir(release, build, application, scenario) / "runs" / str(run_id)
+
+
+def collect_run_artifacts(run_path: Path, scan_dirs: list[Path], started_at: datetime) -> list[str]:
+    """Move JTL and log files created during a run into the run folder."""
+    run_path.mkdir(parents=True, exist_ok=True)
+    cutoff = started_at.timestamp() - 2
+    collected: list[str] = []
+    run_resolved = run_path.resolve()
+
+    for scan_dir in scan_dirs:
+        if not scan_dir.is_dir():
+            continue
+        for item in scan_dir.iterdir():
+            if not item.is_file():
+                continue
+            if item.suffix.lower() not in (".jtl", ".log"):
+                continue
+            try:
+                if item.resolve().parent == run_resolved:
+                    continue
+                if item.stat().st_mtime < cutoff:
+                    continue
+            except OSError:
+                continue
+
+            dest = run_path / item.name
+            if dest.exists():
+                stamp = int(item.stat().st_mtime)
+                dest = run_path / f"{item.stem}_{stamp}{item.suffix}"
+            shutil.move(str(item), str(dest))
+            collected.append(dest.name)
+
+    return collected
 
 
 def ensure_application_dirs(release: Release, build: Build, application: Application) -> None:

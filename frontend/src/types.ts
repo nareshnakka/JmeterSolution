@@ -52,6 +52,23 @@ export interface ScenarioListItem {
   last_run_finished_at?: string
   active_run_id?: number
   is_running: boolean
+  schedule_id?: number
+  schedule_frequency?: 'once' | 'daily' | 'weekly'
+  next_run_at?: string
+  queued_run_id?: number
+  is_queued?: boolean
+}
+
+export interface ScenarioSchedule {
+  id: number
+  scenario_id: number
+  frequency: 'once' | 'daily' | 'weekly'
+  run_at: string
+  days_of_week: number[]
+  next_run_at: string
+  is_active: boolean
+  notes?: string
+  created_at: string
 }
 
 export interface ScenarioFile {
@@ -82,6 +99,29 @@ export interface TestRun {
   build_name?: string
   application_name?: string
   scenario_tags?: string[]
+}
+
+export interface QueuedRunItem extends TestRun {
+  queue_position: number
+}
+
+export interface TestRunQueue {
+  running: TestRun | null
+  queued: QueuedRunItem[]
+}
+
+export interface HostResourceSample {
+  t: number
+  cpu_percent: number
+  memory_percent: number
+  memory_used_mb: number
+  memory_total_mb: number
+  recorded_at?: string
+}
+
+export interface HostResources {
+  interval_seconds: number
+  samples: HostResourceSample[]
 }
 
 /** Runs that finished (or were stopped) with results available for comparison. */

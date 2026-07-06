@@ -111,6 +111,32 @@ class ScenarioListItem(BaseModel):
     last_run_finished_at: datetime | None = None
     active_run_id: int | None = None
     is_running: bool = False
+    schedule_id: int | None = None
+    schedule_frequency: str | None = None
+    next_run_at: datetime | None = None
+    queued_run_id: int | None = None
+    is_queued: bool = False
+
+
+class ScenarioScheduleCreate(BaseModel):
+    frequency: str
+    run_at: datetime
+    days_of_week: list[int] | None = None
+    notes: str | None = None
+
+
+class ScenarioScheduleOut(BaseModel):
+    id: int
+    scenario_id: int
+    frequency: str
+    run_at: datetime
+    days_of_week: list[int] = Field(default_factory=list)
+    next_run_at: datetime
+    is_active: bool
+    notes: str | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
 
 
 # --- Test runs ---
@@ -150,6 +176,29 @@ class TestRunOut(BaseModel):
     scenario_tags: list[str] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
+
+
+class QueuedRunItem(TestRunOut):
+    queue_position: int
+
+
+class TestRunQueueOut(BaseModel):
+    running: TestRunOut | None = None
+    queued: list[QueuedRunItem] = Field(default_factory=list)
+
+
+class HostResourceSample(BaseModel):
+    t: float
+    cpu_percent: float
+    memory_percent: float
+    memory_used_mb: float
+    memory_total_mb: float
+    recorded_at: str | None = None
+
+
+class HostResourcesOut(BaseModel):
+    interval_seconds: int
+    samples: list[HostResourceSample] = Field(default_factory=list)
 
 
 class TransactionMetric(BaseModel):

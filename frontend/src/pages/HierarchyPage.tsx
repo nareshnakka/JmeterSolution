@@ -89,10 +89,26 @@ export default function HierarchyPage() {
     try {
       toast.info(`Starting test for "${scenarioName}"…`)
       const run = await api.startTest(scenarioId)
-      toast.success(`Test started (run #${run.id})`)
-      navigate(`/live/${run.id}`)
+      if (run.status === 'pending') {
+        toast.success(`Test queued (run #${run.id}) — view the Run Queue to manage`)
+      } else {
+        toast.success(`Test started (run #${run.id})`)
+        navigate(`/live/${run.id}`)
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to start test')
+    }
+  }
+
+  async function cloneScenario(scenarioId: number) {
+    if (!selectedApp) return
+    try {
+      const cloned = await api.cloneScenario(scenarioId)
+      toast.success(`Cloned as "${cloned.name}". Edit it from the Scenarios page to rename.`)
+      const list = await api.listScenarios(selectedApp.id)
+      setScenarios(list)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to clone scenario')
     }
   }
 
@@ -219,7 +235,14 @@ export default function HierarchyPage() {
                 emptyText="No dependency files selected"
               />
             </div>
-            <button className="btn" onClick={uploadScenario}>Upload Scenario</button>
+            <button
+              className="btn"
+              onClick={uploadScenario}
+              disabled={jmxFiles.length === 0}
+              title={jmxFiles.length === 0 ? 'Select a JMX file first' : undefined}
+            >
+              Upload Scenario
+            </button>
           </div>
 
           <div className="card">
@@ -251,6 +274,7 @@ export default function HierarchyPage() {
                       </td>
                       <td>{s.jmx_filename}</td>
                       <td>
+                        <button className="btn btn-secondary" style={{ marginRight: '0.5rem' }} onClick={() => cloneScenario(s.id)}>Clone</button>
                         <button className="btn" style={{ marginRight: '0.5rem' }} onClick={() => runNow(s.id, s.name)}>Run Now</button>
                         <input
                           type="datetime-local"

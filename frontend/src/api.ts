@@ -69,6 +69,26 @@ export const api = {
     request<{ ok: boolean; test_run_id: number }>(`/scenarios/${scenarioId}/stop`, { method: 'POST' }),
   getScenario: (scenarioId: number) =>
     request<import('./types').Scenario>(`/scenarios/${scenarioId}`),
+  cloneScenario: (scenarioId: number) =>
+    request<import('./types').Scenario>(`/scenarios/${scenarioId}/clone`, { method: 'POST' }),
+  getScenarioSchedule: (scenarioId: number) =>
+    request<import('./types').ScenarioSchedule | null>(`/scenarios/${scenarioId}/schedule`),
+  createScenarioSchedule: (
+    scenarioId: number,
+    body: {
+      frequency: 'once' | 'daily' | 'weekly'
+      run_at: string
+      days_of_week?: number[]
+      notes?: string
+    }
+  ) =>
+    request<import('./types').ScenarioSchedule>(`/scenarios/${scenarioId}/schedule`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  cancelScenarioSchedule: (scenarioId: number) =>
+    request<{ ok: boolean }>(`/scenarios/${scenarioId}/schedule`, { method: 'DELETE' }),
   updateScenario: (scenarioId: number, form: FormData) =>
     request<import('./types').Scenario>(`/scenarios/${scenarioId}/update`, { method: 'POST', body: form }),
   listScenarioFiles: (scenarioId: number) =>
@@ -88,6 +108,7 @@ export const api = {
   },
 
   listTestRuns: () => request<import('./types').TestRun[]>('/test-runs'),
+  getTestRunQueue: () => request<import('./types').TestRunQueue>('/test-runs/queue'),
   deleteTestRuns: (ids: number[]) =>
     request<{ deleted: number[]; failed: { id: number; error: string }[] }>('/test-runs/delete', {
       method: 'POST',
@@ -110,6 +131,8 @@ export const api = {
       body: JSON.stringify({ scenario_id: scenarioId, scheduled_at: scheduledAt, notes }),
     }),
   getMetrics: (runId: number) => request<import('./types').LiveMetrics>(`/test-runs/${runId}/metrics`),
+  getRunResources: (runId: number) =>
+    request<import('./types').HostResources>(`/test-runs/${runId}/resources`),
   getRunErrors: (runId: number, search?: string, limit = 200) => {
     const params = new URLSearchParams()
     if (search?.trim()) params.set('search', search.trim())

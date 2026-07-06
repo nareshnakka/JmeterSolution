@@ -11,6 +11,8 @@ from app.database import SessionLocal
 from app.models import TestRun, TestRunStatus, TestRunType
 from app.services.archive import auto_archive_old_runs
 from app.services.jmeter_runner import run_manager
+from app.services.run_queue import try_start_or_queue
+from app.services.scenario_schedule import restore_scenario_schedules
 
 scheduler = AsyncIOScheduler()
 
@@ -19,6 +21,7 @@ def start_scheduler() -> None:
     if not scheduler.running:
         scheduler.start()
         _restore_scheduled_runs()
+        restore_scenario_schedules()
         scheduler.add_job(
             _run_auto_archive_job,
             trigger=CronTrigger(hour=2, minute=0),
@@ -83,6 +86,6 @@ async def _fire_scheduled_run(test_run_id: int) -> None:
             return
         run.status = TestRunStatus.PENDING
         db.commit()
-        await run_manager.start_run(db, run)
+        await try_start_or_queue(db, run)
     finally:
         db.close()

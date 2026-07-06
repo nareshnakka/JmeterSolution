@@ -74,7 +74,10 @@ def restore_test_run(db: Session, run: TestRun) -> None:
         return
 
     release, build, app = _resolve_hierarchy(db, run)
-    target = test_run_dir(release, build, app, run.id)
+    scenario = db.get(Scenario, run.scenario_id)
+    if not scenario:
+        raise ValueError(f"Scenario not found for run #{run.id}")
+    target = test_run_dir(release, build, app, scenario, run.id)
     target.parent.mkdir(parents=True, exist_ok=True)
 
     src = Path(run.run_dir) if run.run_dir else None

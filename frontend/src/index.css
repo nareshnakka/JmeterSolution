@@ -686,6 +686,127 @@ tr.selected td { background: rgba(59, 130, 246, 0.15); }
   border-top: 1px solid var(--border);
 }
 
+.schedule-frequency-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+}
+
+.schedule-frequency-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.schedule-weekdays {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.schedule-weekday {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+
+.schedule-next-run {
+  font-size: 0.8125rem;
+  color: var(--muted);
+  margin-bottom: 0.75rem;
+}
+
+.schedule-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  max-width: 11rem;
+}
+
+.schedule-cell-text {
+  font-size: 0.75rem;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-icon-danger {
+  border: none;
+  background: transparent;
+  color: var(--danger);
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0 0.2rem;
+}
+
+.btn-icon-danger:hover:not(:disabled) {
+  opacity: 0.8;
+}
+
+.btn-icon-danger:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.page-lead {
+  color: var(--muted);
+  font-size: 0.875rem;
+  margin: -0.5rem 0 1rem;
+}
+
+.queue-section-title {
+  font-size: 0.9375rem;
+  margin: 1.25rem 0 0.75rem;
+}
+
+.queue-section-title:first-of-type {
+  margin-top: 0;
+}
+
+.queue-running-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.875rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-2, rgba(255, 255, 255, 0.03));
+}
+
+.queue-meta {
+  margin-left: 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+.resource-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  font-size: 0.8125rem;
+  color: var(--muted);
+  margin: 0.75rem 0;
+}
+
+.resource-summary strong {
+  color: var(--text);
+}
+
 /* Toast notifications */
 .toast-container {
   position: fixed;

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import ScenarioEditModal from '../components/ScenarioEditModal'
+import ScenarioScheduleModal, { formatNextRun, ScheduleIcon } from '../components/ScenarioScheduleModal'
 import { useToast } from '../components/Toast'
 import type { ScenarioListItem } from '../types'
 
@@ -36,6 +37,7 @@ export default function ScenariosPage() {
   const [runTo, setRunTo] = useState('')
   const [lastRunStatus, setLastRunStatus] = useState('')
   const [editingScenario, setEditingScenario] = useState<ScenarioListItem | null>(null)
+  const [schedulingScenario, setSchedulingScenario] = useState<ScenarioListItem | null>(null)
 
   const hasActiveFilters = Boolean(
     release || build || application || name || tag || runFrom || runTo || lastRunStatus
@@ -73,11 +75,29 @@ export default function ScenariosPage() {
     try {
       toast.info(`Starting test for "${scenarioName}"…`)
       const run = await api.startTest(scenarioId)
-      toast.success(`Test started (run #${run.id})`)
-      navigate(`/live/${run.id}`)
+      if (run.status === 'pending') {
+        toast.success(`Test queued (run #${run.id}) — will start when the server is free`)
+        await loadScenarios()
+      } else {
+        toast.success(`Test started (run #${run.id})`)
+        navigate(`/live/${run.id}`)
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Failed to start test'
       toast.error(msg)
+    } finally {
+      setActionId(null)
+    }
+  }
+
+  async function cancelScenarioSchedule(s: ScenarioListItem) {
+    setActionId(s.id)
+    try {
+      await api.cancelScenarioSchedule(s.id)
+      toast.success(`Schedule cancelled for "${s.name}"`)
+      await loadScenarios()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to cancel schedule')
     } finally {
       setActionId(null)
     }
@@ -91,6 +111,34 @@ export default function ScenariosPage() {
       await loadScenarios()
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Failed to stop test'
+      toast.error(msg)
+    } finally {
+      setActionId(null)
+    }
+  }
+
+  async function cloneScenarioItem(s: ScenarioListItem) {
+    setActionId(s.id)
+    try {
+      const cloned = await api.cloneScenario(s.id)
+      toast.success(`Cloned as "${cloned.name}". You can rename it below.`)
+      await loadScenarios()
+      setEditingScenario({
+        ...s,
+        id: cloned.id,
+        name: cloned.name,
+        jmx_filename: cloned.jmx_filename,
+        tags: cloned.tags ?? [],
+        created_at: cloned.created_at,
+        last_run_id: undefined,
+        last_run_status: undefined,
+        last_run_started_at: undefined,
+        last_run_finished_at: undefined,
+        active_run_id: undefined,
+        is_running: false,
+      })
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Failed to clone scenario'
       toast.error(msg)
     } finally {
       setActionId(null)
@@ -117,6 +165,9 @@ export default function ScenariosPage() {
           <span className="table-toolbar-count">
             {loading ? 'Loading…' : `${scenarios.length} scenario(s)`}
           </span>
+          <Link to="/queue" className="btn btn-secondary">
+            View queue
+          </Link>
           <button className="btn btn-secondary" onClick={loadScenarios} disabled={loading}>
             Refresh
           </button>
@@ -134,6 +185,7 @@ export default function ScenariosPage() {
                 <th>Last run</th>
                 <th>Run started</th>
                 <th>Status</th>
+                <th>Next run</th>
                 <th>Actions</th>
               </tr>
               <tr className="table-filter-row">
@@ -208,6 +260,7 @@ export default function ScenariosPage() {
                     ))}
                   </select>
                 </th>
+                <th />
                 <th>
                   {hasActiveFilters && (
                     <button
@@ -251,10 +304,52 @@ export default function ScenariosPage() {
                   <td>
                     {s.is_running
                       ? statusBadge('running')
-                      : statusBadge(s.last_run_status)}
+                      : s.is_queued
+                        ? statusBadge('pending')
+                        : statusBadge(s.last_run_status)}
+                  </td>
+                  <td>
+                    {formatNextRun(s) ? (
+                      <div className="schedule-cell">
+                        <span className="schedule-cell-text" title={formatNextRun(s) ?? undefined}>
+                          {formatNextRun(s)}
+                        </span>
+                        <button
+                          type="button"
+                          className="btn-icon btn-icon-danger"
+                          title="Cancel schedule"
+                          disabled={actionId === s.id}
+                          onClick={() => cancelScenarioSchedule(s)}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ) : s.is_queued ? (
+                      <span className="schedule-cell-text">Queued</span>
+                    ) : (
+                      '—'
+                    )}
                   </td>
                   <td>
                     <div className="scenario-actions">
+                      <button
+                        className="btn btn-icon"
+                        style={{ padding: '0.25rem 0.45rem', fontSize: '0.75rem' }}
+                        disabled={s.is_running || actionId === s.id}
+                        title={s.is_running ? 'Stop the test before scheduling' : 'Schedule test'}
+                        onClick={() => setSchedulingScenario(s)}
+                      >
+                        <ScheduleIcon />
+                      </button>
+                      <button
+                        className="btn btn-secondary"
+                        style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
+                        disabled={actionId === s.id}
+                        title="Clone scenario"
+                        onClick={() => cloneScenarioItem(s)}
+                      >
+                        Clone
+                      </button>
                       <button
                         className="btn btn-secondary"
                         style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
@@ -282,6 +377,16 @@ export default function ScenariosPage() {
                             Stop
                           </button>
                         </>
+                      ) : s.is_queued ? (
+                        <button
+                          className="btn btn-secondary"
+                          style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
+                          disabled={actionId === s.id}
+                          onClick={() => stopScenario(s.id, s.name)}
+                          title="Remove from queue"
+                        >
+                          Dequeue
+                        </button>
                       ) : (
                         <button
                           className="btn"
@@ -301,6 +406,14 @@ export default function ScenariosPage() {
         </div>
         {scenarios.length === 0 && !loading && <p className="empty">No scenarios match your filters</p>}
       </div>
+
+      {schedulingScenario && (
+        <ScenarioScheduleModal
+          scenario={schedulingScenario}
+          onClose={() => setSchedulingScenario(null)}
+          onSaved={loadScenarios}
+        />
+      )}
 
       {editingScenario && (
         <ScenarioEditModal

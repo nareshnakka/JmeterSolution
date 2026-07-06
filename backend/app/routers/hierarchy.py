@@ -1,13 +1,26 @@
 """Release / build / application / scenario CRUD routes."""
 
 import json
+import shutil
 from datetime import datetime
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
-from app.models import Application, Build, Release, Scenario, ScenarioFile, ScenarioFileKind, TestRun, TestRunStatus
+from app.models import (
+    Application,
+    Build,
+    Release,
+    Scenario,
+    ScenarioFile,
+    ScenarioFileKind,
+    ScenarioSchedule,
+    ScheduleFrequency,
+    TestRun,
+    TestRunStatus,
+)
 from app.schemas import (
     ApplicationCreate,
     ApplicationOut,
@@ -18,11 +31,20 @@ from app.schemas import (
     ScenarioFileOut,
     ScenarioListItem,
     ScenarioOut,
+    ScenarioScheduleCreate,
+    ScenarioScheduleOut,
 )
 from app.services.jmeter_runner import run_manager
+from app.services.scenario_schedule import (
+    create_scenario_schedule,
+    deactivate_scenario_schedule,
+    parse_days_of_week,
+)
+from app.services.run_queue import process_run_queue
 from app.services.storage import (
     ensure_application_dirs,
     resolve_scenario_file_path,
+    resolve_scenario_jmx,
     scenario_dependencies_dir,
     scenario_scripts_dir,
     scenario_uploads_dir,
@@ -106,6 +128,79 @@ async def _save_scenario_files(
         for sf in saved:
             db.refresh(sf)
     return saved
+
+
+def _unique_scenario_name(db: Session, application_id: int, source_name: str) -> str:
+    base = f"Clone_{source_name}"
+    if not db.query(Scenario).filter(Scenario.application_id == application_id, Scenario.name == base).first():
+        return base
+    n = 2
+    while True:
+        candidate = f"Clone_{source_name}_{n}"
+        if not db.query(Scenario).filter(Scenario.application_id == application_id, Scenario.name == candidate).first():
+            return candidate
+        n += 1
+
+
+def _unique_filename(directory: Path, filename: str, prefix: str = "Clone_") -> str:
+    candidate = f"{prefix}{filename}" if not filename.startswith(prefix) else f"{prefix}copy_{filename}"
+    if not (directory / candidate).exists():
+        return candidate
+    stem = Path(filename).stem
+    suffix = Path(filename).suffix
+    n = 2
+    while True:
+        candidate = f"{prefix}{stem}_{n}{suffix}"
+        if not (directory / candidate).exists():
+            return candidate
+        n += 1
+
+
+def _clone_scenario_record(
+    db: Session,
+    source: Scenario,
+    release: Release,
+    build: Build,
+    app: Application,
+) -> Scenario:
+    scripts_dir = scenario_scripts_dir(release, build, app)
+    uploads_dir = scenario_uploads_dir(release, build, app)
+    scripts_dir.mkdir(parents=True, exist_ok=True)
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+
+    source_jmx = resolve_scenario_jmx(release, build, app, source)
+    if not source_jmx.is_file():
+        raise HTTPException(404, f"JMX file not found: {source.jmx_filename}")
+
+    new_jmx_name = _unique_filename(scripts_dir, source.jmx_filename)
+    shutil.copy2(source_jmx, scripts_dir / new_jmx_name)
+
+    clone = Scenario(
+        application_id=source.application_id,
+        name=_unique_scenario_name(db, source.application_id, source.name),
+        tag=source.tag,
+        jmx_filename=new_jmx_name,
+        description=source.description,
+    )
+    db.add(clone)
+    db.commit()
+    db.refresh(clone)
+
+    source_files = db.query(ScenarioFile).filter(ScenarioFile.scenario_id == source.id).all()
+    for sf in source_files:
+        src_path = resolve_scenario_file_path(release, build, app, sf.filename, sf.kind)
+        if sf.kind == ScenarioFileKind.UPLOAD:
+            if src_path.is_file():
+                new_name = _unique_filename(uploads_dir, sf.filename)
+                shutil.copy2(src_path, uploads_dir / new_name)
+                db.add(ScenarioFile(scenario_id=clone.id, filename=new_name, kind=sf.kind))
+            continue
+        if src_path.is_file() or (scripts_dir / sf.filename).is_file():
+            db.add(ScenarioFile(scenario_id=clone.id, filename=sf.filename, kind=sf.kind))
+
+    db.commit()
+    db.refresh(clone)
+    return clone
 
 
 # --- Releases ---
@@ -221,6 +316,24 @@ def list_all_scenarios(
             if run.status == TestRunStatus.RUNNING:
                 active_run[run.scenario_id] = run
 
+    schedule_by_scenario: dict[int, ScenarioSchedule] = {}
+    queued_by_scenario: dict[int, TestRun] = {}
+    if scenario_ids:
+        for schedule in (
+            db.query(ScenarioSchedule)
+            .filter(ScenarioSchedule.scenario_id.in_(scenario_ids), ScenarioSchedule.is_active.is_(True))
+            .all()
+        ):
+            schedule_by_scenario[schedule.scenario_id] = schedule
+        for run in (
+            db.query(TestRun)
+            .filter(TestRun.scenario_id.in_(scenario_ids), TestRun.status == TestRunStatus.PENDING)
+            .order_by(TestRun.created_at.asc())
+            .all()
+        ):
+            if run.scenario_id not in queued_by_scenario:
+                queued_by_scenario[run.scenario_id] = run
+
     items: list[ScenarioListItem] = []
     for scenario in scenarios:
         app = scenario.application
@@ -229,6 +342,8 @@ def list_all_scenarios(
         tags = _parse_tags(scenario.tag)
         last = latest_run.get(scenario.id)
         active = active_run.get(scenario.id)
+        schedule = schedule_by_scenario.get(scenario.id)
+        queued = queued_by_scenario.get(scenario.id)
 
         if not _matches(release_obj.name, release):
             continue
@@ -275,13 +390,99 @@ def list_all_scenarios(
                 last_run_finished_at=last.finished_at if last else None,
                 active_run_id=active.id if active else None,
                 is_running=active is not None,
+                schedule_id=schedule.id if schedule else None,
+                schedule_frequency=schedule.frequency.value if schedule else None,
+                next_run_at=schedule.next_run_at if schedule else None,
+                queued_run_id=queued.id if queued else None,
+                is_queued=queued is not None,
             )
         )
     return items
 
 
+def _schedule_to_out(schedule: ScenarioSchedule) -> ScenarioScheduleOut:
+    return ScenarioScheduleOut(
+        id=schedule.id,
+        scenario_id=schedule.scenario_id,
+        frequency=schedule.frequency.value,
+        run_at=schedule.run_at,
+        days_of_week=parse_days_of_week(schedule.days_of_week),
+        next_run_at=schedule.next_run_at,
+        is_active=schedule.is_active,
+        notes=schedule.notes,
+        created_at=schedule.created_at,
+    )
+
+
+@router.get("/scenarios/{scenario_id}/schedule", response_model=ScenarioScheduleOut | None)
+def get_scenario_schedule(scenario_id: int, db: Session = Depends(get_db)):
+    scenario = db.get(Scenario, scenario_id)
+    if not scenario:
+        raise HTTPException(404, "Scenario not found")
+    schedule = (
+        db.query(ScenarioSchedule)
+        .filter(ScenarioSchedule.scenario_id == scenario_id, ScenarioSchedule.is_active.is_(True))
+        .first()
+    )
+    if not schedule:
+        return None
+    return _schedule_to_out(schedule)
+
+
+@router.post("/scenarios/{scenario_id}/schedule", response_model=ScenarioScheduleOut, status_code=201)
+def create_scenario_schedule_route(
+    scenario_id: int,
+    body: ScenarioScheduleCreate,
+    db: Session = Depends(get_db),
+):
+    scenario = db.get(Scenario, scenario_id)
+    if not scenario:
+        raise HTTPException(404, "Scenario not found")
+    try:
+        frequency = ScheduleFrequency(body.frequency)
+    except ValueError as exc:
+        raise HTTPException(400, "Invalid schedule frequency") from exc
+
+    schedule = create_scenario_schedule(
+        db,
+        scenario_id,
+        frequency,
+        body.run_at,
+        body.days_of_week,
+        body.notes,
+    )
+    return _schedule_to_out(schedule)
+
+
+@router.delete("/scenarios/{scenario_id}/schedule")
+async def cancel_scenario_schedule(scenario_id: int, db: Session = Depends(get_db)):
+    scenario = db.get(Scenario, scenario_id)
+    if not scenario:
+        raise HTTPException(404, "Scenario not found")
+    schedule = (
+        db.query(ScenarioSchedule)
+        .filter(ScenarioSchedule.scenario_id == scenario_id, ScenarioSchedule.is_active.is_(True))
+        .first()
+    )
+    if schedule:
+        deactivate_scenario_schedule(db, schedule)
+
+    pending_runs = (
+        db.query(TestRun)
+        .filter(TestRun.scenario_id == scenario_id, TestRun.status == TestRunStatus.PENDING)
+        .all()
+    )
+    now = datetime.utcnow()
+    for run in pending_runs:
+        run.status = TestRunStatus.CANCELLED
+        run.finished_at = now
+    db.commit()
+    await process_run_queue()
+    return {"ok": True}
+
+
 @router.post("/scenarios/{scenario_id}/stop")
-def stop_scenario_run(scenario_id: int, db: Session = Depends(get_db)):
+async def stop_scenario_run(scenario_id: int, db: Session = Depends(get_db)):
     scenario = db.get(Scenario, scenario_id)
     if not scenario:
         raise HTTPException(404, "Scenario not found")
@@ -296,10 +497,12 @@ def stop_scenario_run(scenario_id: int, db: Session = Depends(get_db)):
     )
     if not run:
         raise HTTPException(404, "No active run for this scenario")
-    run_manager.cancel_run(run.id)
+    if run.status == TestRunStatus.RUNNING:
+        run_manager.cancel_run(run.id)
     run.status = TestRunStatus.CANCELLED
     run.finished_at = datetime.utcnow()
     db.commit()
+    await process_run_queue()
     return {"ok": True, "test_run_id": run.id}
 
 
@@ -332,6 +535,13 @@ def get_scenario(scenario_id: int, db: Session = Depends(get_db)):
     if not scenario:
         raise HTTPException(404, "Scenario not found")
     return scenario
+
+
+@router.post("/scenarios/{scenario_id}/clone", response_model=ScenarioOut, status_code=201)
+def clone_scenario(scenario_id: int, db: Session = Depends(get_db)):
+    scenario, release, build, app = _scenario_context(db, scenario_id)
+    ensure_application_dirs(release, build, app)
+    return _clone_scenario_record(db, scenario, release, build, app)
 
 
 @router.post("/scenarios/{scenario_id}/update", response_model=ScenarioOut)

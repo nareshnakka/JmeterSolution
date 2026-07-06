@@ -32,6 +32,12 @@ class TestRunType(str, enum.Enum):
     SCHEDULED = "scheduled"
 
 
+class ScheduleFrequency(str, enum.Enum):
+    ONCE = "once"
+    DAILY = "daily"
+    WEEKLY = "weekly"
+
+
 class Release(Base):
     __tablename__ = "releases"
 
@@ -84,6 +90,23 @@ class Scenario(Base):
     application: Mapped["Application"] = relationship(back_populates="scenarios")
     files: Mapped[list["ScenarioFile"]] = relationship(back_populates="scenario", cascade="all, delete-orphan")
     test_runs: Mapped[list["TestRun"]] = relationship(back_populates="scenario")
+    schedules: Mapped[list["ScenarioSchedule"]] = relationship(back_populates="scenario", cascade="all, delete-orphan")
+
+
+class ScenarioSchedule(Base):
+    __tablename__ = "scenario_schedules"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    scenario_id: Mapped[int] = mapped_column(ForeignKey("scenarios.id"), nullable=False)
+    frequency: Mapped[ScheduleFrequency] = mapped_column(Enum(ScheduleFrequency), nullable=False)
+    run_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    days_of_week: Mapped[str | None] = mapped_column(String(64))
+    next_run_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    scenario: Mapped["Scenario"] = relationship(back_populates="schedules")
 
 
 class ScenarioFileKind(str, enum.Enum):
