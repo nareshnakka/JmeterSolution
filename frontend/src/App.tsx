@@ -7,6 +7,7 @@ import QueuePage from './pages/QueuePage'
 import LiveDashboard from './pages/LiveDashboard'
 import ComparePage from './pages/ComparePage'
 import ConfigPage from './pages/ConfigPage'
+import { APP_VERSION } from './version'
 
 export default function App() {
   return (
@@ -20,7 +21,9 @@ export default function App() {
               </svg>
             </span>
             <div>
-              <div className="app-brand-name">JMeter Agent</div>
+              <div className="app-brand-name">
+                JMeter Agent <span className="app-version">({APP_VERSION})</span>
+              </div>
               <div className="app-brand-tagline">Performance Test Management</div>
             </div>
           </div>

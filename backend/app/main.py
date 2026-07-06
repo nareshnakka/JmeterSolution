@@ -14,6 +14,7 @@ from app.database import SessionLocal, init_db
 from app.services.system_config import get_system_config
 from app.routers import config, hierarchy, test_runs, websocket
 from app.services.scheduler import shutdown_scheduler, start_scheduler
+from app.version import version_full, version_label
 
 _frontend_dist = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
 
@@ -40,7 +41,7 @@ async def lifespan(app: FastAPI):
     shutdown_scheduler()
 
 
-app = FastAPI(title="JMeter Agent Server", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="JMeter Agent Server", version=version_full(), lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -65,6 +66,7 @@ def health():
         jmeter_ok = (jmeter_path / "bin" / "jmeter.bat").is_file()
         return {
             "status": "ok" if jmeter_ok else "degraded",
+            "version": version_label(),
             "jmeter_home": cfg.jmeter_home,
             "jmeter_found": jmeter_ok,
             "data_root": cfg.data_root,

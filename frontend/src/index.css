@@ -85,6 +85,12 @@ a:hover { color: var(--brand-dark); text-decoration: underline; }
   letter-spacing: -0.01em;
 }
 
+.app-version {
+  font-weight: 500;
+  font-size: 0.875rem;
+  opacity: 0.92;
+}
+
 .app-brand-tagline {
   font-size: 0.75rem;
   opacity: 0.9;
