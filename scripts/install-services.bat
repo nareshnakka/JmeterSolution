@@ -6,6 +6,7 @@ set "BACKEND=%ROOT%\backend"
 set "FRONTEND=%ROOT%\frontend"
 set "SKIP_BUILD=0"
 set "SKIP_DB=0"
+set "PYTHON_CMD=python"
 
 if /I "%~1"=="--skip-build" set "SKIP_BUILD=1"
 if /I "%~1"=="--skip-db" set "SKIP_DB=1"
@@ -17,16 +18,30 @@ echo  JMeter Agent Server - Installation
 echo ========================================
 echo.
 
-call :RequireCommand python "Python 3.11+"
-call :RequireCommand node "Node.js 18+"
-call :RequireCommand npm "npm (included with Node.js)"
-
-python -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)" >nul 2>&1
+net session >nul 2>&1
 if errorlevel 1 (
-  echo ERROR: Python 3.11 or newer is required.
+  echo NOTE: Run as Administrator to auto-install Python and Node.js for all users.
+  echo       Without admin rights, installs may fail or install for current user only.
+  echo.
+)
+
+echo [0/5] Checking / installing prerequisites ...
+call :EnsurePython
+if errorlevel 1 exit /b 1
+
+call :EnsureNode
+if errorlevel 1 exit /b 1
+
+call :RefreshPath
+
+where npm >nul 2>&1
+if errorlevel 1 (
+  echo ERROR: npm was not found after Node.js installation.
+  echo        Close this window, open a new Command Prompt, and run install again.
   exit /b 1
 )
 
+echo.
 if not exist "%ROOT%\.env" (
   if exist "%ROOT%\.env.example" (
     echo Creating .env from .env.example ...
@@ -64,10 +79,10 @@ if defined JMETER_HOME (
 )
 
 echo.
-echo [1/4] Setting up Python virtual environment ...
+echo [1/5] Setting up Python virtual environment ...
 if not exist "%BACKEND%\venv\Scripts\python.exe" (
   pushd "%BACKEND%"
-  python -m venv venv
+  %PYTHON_CMD% -m venv venv
   if errorlevel 1 (
     echo ERROR: Failed to create virtual environment.
     popd
@@ -91,9 +106,9 @@ popd
 
 echo.
 if "%SKIP_BUILD%"=="1" (
-  echo [2/4] Skipping frontend install/build ^(--skip-build^).
+  echo [2/5] Skipping frontend install/build ^(--skip-build^).
 ) else (
-  echo [2/4] Installing frontend dependencies ...
+  echo [2/5] Installing frontend dependencies ...
   pushd "%FRONTEND%"
   call npm install
   if errorlevel 1 (
@@ -103,7 +118,7 @@ if "%SKIP_BUILD%"=="1" (
   )
 
   echo.
-  echo [3/4] Building frontend ...
+  echo [3/5] Building frontend ...
   call npm run build
   if errorlevel 1 (
     echo ERROR: Frontend build failed.
@@ -115,9 +130,9 @@ if "%SKIP_BUILD%"=="1" (
 
 echo.
 if "%SKIP_DB%"=="1" (
-  echo [4/4] Skipping database initialization ^(--skip-db^).
+  echo [4/5] Skipping database initialization ^(--skip-db^).
 ) else (
-  echo [4/4] Initializing SQLite database ...
+  echo [4/5] Initializing SQLite database ...
   pushd "%BACKEND%"
   call venv\Scripts\activate.bat
   python -c "from app.database import init_db; init_db(); print('Database tables created successfully.')"
@@ -130,9 +145,25 @@ if "%SKIP_DB%"=="1" (
 )
 
 echo.
+echo [5/5] Installation verification ...
+%PYTHON_CMD% --version
+node --version
+npm --version
+if not exist "%FRONTEND%\dist\index.html" (
+  if "%SKIP_BUILD%"=="0" (
+    echo WARNING: frontend\dist\index.html was not created.
+  )
+)
+
+echo.
 echo ========================================
 echo  Installation completed successfully
 echo ========================================
+echo.
+echo Installed / verified:
+echo   Python : %PYTHON_CMD%
+echo   Node.js: installed
+echo   SQLite : backend\jmeter_agent.db
 echo.
 echo Next steps:
 echo   1. Edit %ROOT%\.env
@@ -150,12 +181,161 @@ echo   scripts\update-services.bat  Pull latest code and update
 echo.
 exit /b 0
 
-:RequireCommand
-where %~1 >nul 2>&1
+:EnsurePython
+call :ResolvePython
+if not errorlevel 1 exit /b 0
+
+echo Python 3.11+ not found. Installing Python ...
+where winget >nul 2>&1
+if not errorlevel 1 (
+  echo Using winget to install Python 3.12 ...
+  winget install -e --id Python.Python.3.12 --scope machine --accept-package-agreements --accept-source-agreements --silent
+  if not errorlevel 1 (
+    call :RefreshPath
+    call :ResolvePython
+    if not errorlevel 1 (
+      echo Python installed successfully.
+      exit /b 0
+    )
+  )
+)
+
+echo winget unavailable or failed. Downloading Python installer ...
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$ErrorActionPreference='Stop';" ^
+  "$ver='3.12.7';" ^
+  "$url=\"https://www.python.org/ftp/python/$ver/python-$ver-amd64.exe\";" ^
+  "$out=\"$env:TEMP\python-$ver-amd64.exe\";" ^
+  "Write-Host \"Downloading $url\";" ^
+  "Invoke-WebRequest -Uri $url -OutFile $out;" ^
+  "Write-Host 'Running Python installer (silent)...';" ^
+  "$p=Start-Process -FilePath $out -ArgumentList '/quiet','InstallAllUsers=1','PrependPath=1','Include_test=0' -Wait -PassThru;" ^
+  "if ($p.ExitCode -ne 0) { exit $p.ExitCode }"
+
+call :RefreshPath
+call :ResolvePython
+if not errorlevel 1 (
+  echo Python installed successfully.
+  exit /b 0
+)
+
+echo ERROR: Python installation failed.
+echo        Install Python 3.11+ manually from https://www.python.org/downloads/
+echo        Enable "Add python.exe to PATH", then run this script again.
+exit /b 1
+
+:EnsureNode
+where node >nul 2>&1
+if not errorlevel 1 (
+  echo Node.js found.
+  node --version
+  exit /b 0
+)
+
+echo Node.js not found. Installing Node.js LTS ...
+where winget >nul 2>&1
+if not errorlevel 1 (
+  echo Using winget to install Node.js LTS ...
+  winget install -e --id OpenJS.NodeJS.LTS --scope machine --accept-package-agreements --accept-source-agreements --silent
+  if not errorlevel 1 (
+    call :RefreshPath
+    where node >nul 2>&1
+    if not errorlevel 1 (
+      echo Node.js installed successfully.
+      node --version
+      exit /b 0
+    )
+  )
+)
+
+echo winget unavailable or failed. Downloading Node.js LTS installer ...
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$ErrorActionPreference='Stop';" ^
+  "$index=Invoke-RestMethod 'https://nodejs.org/dist/index.json';" ^
+  "$lts=($index | Where-Object { $_.lts -ne $false } | Select-Object -First 1).version;" ^
+  "$ver=$lts.TrimStart('v');" ^
+  "$url=\"https://nodejs.org/dist/$lts/node-$lts-x64.msi\";" ^
+  "$out=\"$env:TEMP\node-$ver-x64.msi\";" ^
+  "Write-Host \"Downloading $url\";" ^
+  "Invoke-WebRequest -Uri $url -OutFile $out;" ^
+  "Write-Host 'Running Node.js installer (silent)...';" ^
+  "$p=Start-Process -FilePath 'msiexec.exe' -ArgumentList '/i', $out, '/quiet', '/norestart' -Wait -PassThru;" ^
+  "if ($p.ExitCode -ne 0) { exit $p.ExitCode }"
+
+call :RefreshPath
+where node >nul 2>&1
+if not errorlevel 1 (
+  echo Node.js installed successfully.
+  node --version
+  exit /b 0
+)
+
+echo ERROR: Node.js installation failed.
+echo        Install Node.js LTS manually from https://nodejs.org/
+echo        Then run this script again.
+exit /b 1
+
+:ResolvePython
+set "PYTHON_CMD=python"
+where python >nul 2>&1
+if not errorlevel 1 goto :CheckPythonVersion
+
+where py >nul 2>&1
+if not errorlevel 1 (
+  py -3.12 -c "import sys" >nul 2>&1
+  if not errorlevel 1 (
+    set "PYTHON_CMD=py -3.12"
+    goto :CheckPythonVersion
+  )
+  py -3.11 -c "import sys" >nul 2>&1
+  if not errorlevel 1 (
+    set "PYTHON_CMD=py -3.11"
+    goto :CheckPythonVersion
+  )
+  py -3 -c "import sys" >nul 2>&1
+  if not errorlevel 1 (
+    set "PYTHON_CMD=py -3"
+    goto :CheckPythonVersion
+  )
+)
+
+call :FindPythonExe
+if defined PYTHON_EXE (
+  set "PYTHON_CMD=!PYTHON_EXE!"
+  goto :CheckPythonVersion
+)
+
+exit /b 1
+
+:CheckPythonVersion
+%PYTHON_CMD% -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)" >nul 2>&1
 if errorlevel 1 (
-  echo ERROR: %~1 is not installed or not on PATH. Install %~2 and try again.
+  echo ERROR: Python 3.11 or newer is required.
   exit /b 1
 )
+%PYTHON_CMD% --version
+exit /b 0
+
+:FindPythonExe
+set "PYTHON_EXE="
+for %%P in (
+  "%ProgramFiles%\Python312\python.exe"
+  "%ProgramFiles%\Python311\python.exe"
+  "%LocalAppData%\Programs\Python\Python312\python.exe"
+  "%LocalAppData%\Programs\Python\Python311\python.exe"
+) do (
+  if exist %%P set "PYTHON_EXE=%%~P"
+)
+exit /b 0
+
+:RefreshPath
+for /f "tokens=2*" %%a in ('reg query "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment" /v Path 2^>nul') do set "SYSPATH=%%b"
+for /f "tokens=2*" %%a in ('reg query "HKCU\Environment" /v Path 2^>nul') do set "USERPATH=%%b"
+if defined SYSPATH set "PATH=%SYSPATH%"
+if defined USERPATH set "PATH=%PATH%;%USERPATH%"
+set "PATH=%PATH%;%ProgramFiles%\Python312;%ProgramFiles%\Python312\Scripts%"
+set "PATH=%PATH%;%ProgramFiles%\Python311;%ProgramFiles%\Python311\Scripts%"
+set "PATH=%PATH%;%ProgramFiles%\nodejs"
 exit /b 0
 
 :LoadEnv
