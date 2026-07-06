@@ -1,5 +1,14 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
+import {
+  defaultLocalDateTimeInput,
+  formatLocalDateTime,
+  formatLocalTime,
+  isFutureLocalDateTime,
+  localInputToUtcIso,
+  localTimezoneLabel,
+  toLocalInputValue,
+} from '../utils/datetime'
 import { useToast } from './Toast'
 import type { ScenarioListItem, ScenarioSchedule } from '../types'
 
@@ -15,20 +24,6 @@ const WEEKDAYS = [
 
 type Frequency = 'once' | 'daily' | 'weekly'
 
-function toLocalInputValue(iso?: string): string {
-  if (!iso) return ''
-  const d = new Date(iso)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
-function defaultDateTimeLocal(): string {
-  const d = new Date()
-  d.setMinutes(d.getMinutes() + 30)
-  d.setSeconds(0, 0)
-  return toLocalInputValue(d.toISOString())
-}
-
 interface ScenarioScheduleModalProps {
   scenario: ScenarioListItem
   onClose: () => void
@@ -41,10 +36,11 @@ export default function ScenarioScheduleModal({ scenario, onClose, onSaved }: Sc
   const [saving, setSaving] = useState(false)
   const [existing, setExisting] = useState<ScenarioSchedule | null>(null)
   const [frequency, setFrequency] = useState<Frequency>('once')
-  const [runAtLocal, setRunAtLocal] = useState(defaultDateTimeLocal())
+  const [runAtLocal, setRunAtLocal] = useState(defaultLocalDateTimeInput())
   const [daysOfWeek, setDaysOfWeek] = useState<number[]>([0, 1, 2, 3, 4])
   const [notes, setNotes] = useState('')
   const [error, setError] = useState('')
+  const timezoneLabel = localTimezoneLabel()
 
   useEffect(() => {
     api.getScenarioSchedule(scenario.id)
@@ -76,17 +72,21 @@ export default function ScenarioScheduleModal({ scenario, onClose, onSaved }: Sc
       setError('Select at least one day for weekly schedule')
       return
     }
+    if (frequency === 'once' && !isFutureLocalDateTime(runAtLocal)) {
+      setError('Select a date and time in the future')
+      return
+    }
 
     setSaving(true)
     setError('')
     try {
       await api.createScenarioSchedule(scenario.id, {
         frequency,
-        run_at: new Date(runAtLocal).toISOString(),
+        run_at: localInputToUtcIso(runAtLocal),
         days_of_week: frequency === 'weekly' ? daysOfWeek : undefined,
         notes: notes.trim() || undefined,
       })
-      toast.success(`Schedule saved for "${scenario.name}"`)
+      toast.success(`Schedule saved for "${scenario.name}". View it under Run Queue → Scheduled.`)
       onSaved()
       onClose()
     } catch (e) {
@@ -117,8 +117,8 @@ export default function ScenarioScheduleModal({ scenario, onClose, onSaved }: Sc
 
   const timeLabel =
     frequency === 'once'
-      ? 'Run at (date & time)'
-      : 'Run at (time — repeats ' + (frequency === 'daily' ? 'every day' : 'on selected days') + ')'
+      ? `Run at (date & time, ${timezoneLabel})`
+      : `Run at (time in ${timezoneLabel} — repeats ${frequency === 'daily' ? 'every day' : 'on selected days'})`
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -141,7 +141,7 @@ export default function ScenarioScheduleModal({ scenario, onClose, onSaved }: Sc
             {existing && (
               <p className="schedule-next-run">
                 Current schedule: <strong>{existing.frequency}</strong> — next run{' '}
-                <strong>{new Date(existing.next_run_at).toLocaleString()}</strong>
+                <strong>{formatLocalDateTime(existing.next_run_at)}</strong>
               </p>
             )}
 
@@ -196,7 +196,8 @@ export default function ScenarioScheduleModal({ scenario, onClose, onSaved }: Sc
             </div>
 
             <p className="modal-current-file" style={{ marginTop: '0.75rem' }}>
-              Tests start automatically at the scheduled time. If another test is running, this test waits in the queue.
+              Times are entered in your browser&apos;s local timezone ({timezoneLabel}) and converted to server UTC for scheduling.
+              Scheduled tests appear under Run Queue → Scheduled.
             </p>
 
             {error && <p className="modal-error">{error}</p>}
@@ -242,7 +243,7 @@ export function formatScheduleFrequency(
   daysOfWeek: number[] = [],
   runAt?: string
 ): string {
-  const time = runAt ? new Date(runAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''
+  const time = runAt ? formatLocalTime(runAt) : ''
   if (frequency === 'daily') return time ? `Every day at ${time}` : 'Every day'
   if (frequency === 'weekly') {
     const days = daysOfWeek.map((d) => WEEKDAYS.find((w) => w.id === d)?.label ?? String(d)).join(', ')
@@ -253,7 +254,7 @@ export function formatScheduleFrequency(
 
 export function formatNextRun(s: ScenarioListItem): string | null {
   if (!s.next_run_at || !s.schedule_frequency) return null
-  const when = new Date(s.next_run_at).toLocaleString()
+  const when = formatLocalDateTime(s.next_run_at)
   if (s.schedule_frequency === 'daily') return `Daily · ${when}`
   if (s.schedule_frequency === 'weekly') return `Weekly · ${when}`
   return `Once · ${when}`

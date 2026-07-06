@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
@@ -12,10 +13,11 @@ from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
 from app.models import ScheduleFrequency, ScenarioSchedule, TestRun, TestRunStatus, TestRunType
-from app.utils.datetime_utils import naive_utc
+from app.utils.datetime_utils import naive_utc, utc_now
 from app.services.run_queue import try_start_or_queue
 
 DAY_NAMES = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+UTC = ZoneInfo("UTC")
 
 
 def _get_scheduler():
@@ -51,7 +53,7 @@ def compute_next_run_at(
     *,
     after: datetime | None = None,
 ) -> datetime | None:
-    now = after or datetime.utcnow()
+    now = after or utc_now()
     run_at = naive_utc(run_at)
     if after is not None:
         after = naive_utc(after)
@@ -88,9 +90,13 @@ def register_scenario_schedule(schedule: ScenarioSchedule) -> None:
 
     job_id = _job_id(schedule.id)
     if schedule.frequency == ScheduleFrequency.ONCE:
-        trigger = DateTrigger(run_date=schedule.next_run_at)
+        trigger = DateTrigger(run_date=schedule.next_run_at, timezone=UTC)
     elif schedule.frequency == ScheduleFrequency.DAILY:
-        trigger = CronTrigger(hour=schedule.run_at.hour, minute=schedule.run_at.minute)
+        trigger = CronTrigger(
+            hour=schedule.run_at.hour,
+            minute=schedule.run_at.minute,
+            timezone=UTC,
+        )
     else:
         days = parse_days_of_week(schedule.days_of_week)
         dow = ",".join(DAY_NAMES[d] for d in sorted(days))
@@ -98,6 +104,7 @@ def register_scenario_schedule(schedule: ScenarioSchedule) -> None:
             day_of_week=dow,
             hour=schedule.run_at.hour,
             minute=schedule.run_at.minute,
+            timezone=UTC,
         )
 
     scheduler = _get_scheduler()
@@ -148,6 +155,8 @@ def create_scenario_schedule(
     if frequency == ScheduleFrequency.WEEKLY and not days_of_week:
         raise HTTPException(400, "Select at least one day for weekly schedule")
 
+    run_at = naive_utc(run_at)
+
     next_run = compute_next_run_at(
         frequency,
         run_at,
@@ -183,7 +192,7 @@ def restore_scenario_schedules() -> None:
             .all()
         )
         for schedule in schedules:
-            if schedule.frequency == ScheduleFrequency.ONCE and schedule.next_run_at <= datetime.utcnow():
+            if schedule.frequency == ScheduleFrequency.ONCE and schedule.next_run_at <= utc_now():
                 schedule.is_active = False
                 continue
             if schedule.frequency != ScheduleFrequency.ONCE:
@@ -209,7 +218,7 @@ async def _fire_scenario_schedule(schedule_id: int) -> None:
             scenario_id=schedule.scenario_id,
             run_type=TestRunType.SCHEDULED,
             status=TestRunStatus.PENDING,
-            scheduled_at=datetime.utcnow(),
+            scheduled_at=utc_now(),
             notes=schedule.notes,
         )
         db.add(run)

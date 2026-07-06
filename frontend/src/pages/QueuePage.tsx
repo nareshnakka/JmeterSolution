@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { api } from '../api'
 import RunTags from '../components/RunTags'
 import ScenarioScheduleModal, { formatScheduleFrequency } from '../components/ScenarioScheduleModal'
+import { formatLocalDateTime } from '../utils/datetime'
 import { useToast } from '../components/Toast'
 import type { QueuedRunItem, ScenarioListItem, ScheduledQueueItem, TestRun, TestRunQueue } from '../types'
 
@@ -211,7 +212,7 @@ export default function QueuePage() {
                 <tr>
                   <th>Scenario</th>
                   <th>Frequency</th>
-                  <th>Next run</th>
+                  <th>Next run (local)</th>
                   <th>Notes</th>
                   <th>Actions</th>
                 </tr>
@@ -231,7 +232,7 @@ export default function QueuePage() {
                     <td>
                       {formatScheduleFrequency(item.frequency, item.days_of_week, item.run_at)}
                     </td>
-                    <td>{new Date(item.next_run_at).toLocaleString()}</td>
+                    <td>{formatLocalDateTime(item.next_run_at)}</td>
                     <td>{item.notes?.trim() || '—'}</td>
                     <td>
                       <div className="queue-action-buttons">

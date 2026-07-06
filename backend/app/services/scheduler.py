@@ -1,6 +1,7 @@
 """APScheduler integration for scheduled test runs and auto-archive."""
 
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -10,11 +11,12 @@ from sqlalchemy.orm import Session
 from app.database import SessionLocal
 from app.models import TestRun, TestRunStatus, TestRunType
 from app.services.archive import auto_archive_old_runs
-from app.services.jmeter_runner import run_manager
 from app.services.run_queue import try_start_or_queue
 from app.services.scenario_schedule import restore_scenario_schedules
+from app.utils.datetime_utils import utc_now
 
-scheduler = AsyncIOScheduler()
+UTC = ZoneInfo("UTC")
+scheduler = AsyncIOScheduler(timezone=UTC)
 
 
 def start_scheduler() -> None:
@@ -24,7 +26,7 @@ def start_scheduler() -> None:
         restore_scenario_schedules()
         scheduler.add_job(
             _run_auto_archive_job,
-            trigger=CronTrigger(hour=2, minute=0),
+            trigger=CronTrigger(hour=2, minute=0, timezone=UTC),
             id="auto_archive_runs",
             replace_existing=True,
         )
@@ -38,7 +40,7 @@ def shutdown_scheduler() -> None:
 def schedule_test_run(test_run_id: int, scheduled_at: datetime) -> None:
     scheduler.add_job(
         _fire_scheduled_run,
-        trigger=DateTrigger(run_date=scheduled_at),
+        trigger=DateTrigger(run_date=scheduled_at, timezone=UTC),
         id=f"test_run_{test_run_id}",
         replace_existing=True,
         kwargs={"test_run_id": test_run_id},
@@ -55,12 +57,13 @@ def unschedule_test_run(test_run_id: int) -> None:
 def _restore_scheduled_runs() -> None:
     db = SessionLocal()
     try:
+        now = utc_now()
         runs = (
             db.query(TestRun)
             .filter(
                 TestRun.status == TestRunStatus.SCHEDULED,
                 TestRun.scheduled_at.isnot(None),
-                TestRun.scheduled_at > datetime.utcnow(),
+                TestRun.scheduled_at > now,
             )
             .all()
         )

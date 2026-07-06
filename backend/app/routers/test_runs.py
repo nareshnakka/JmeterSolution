@@ -38,6 +38,7 @@ from app.services.jtl_parser import parse_jtl_file
 from app.services.run_queue import try_start_or_queue
 from app.services.scheduler import schedule_test_run, unschedule_test_run
 from app.services.scenario_schedule import parse_days_of_week
+from app.utils.datetime_utils import utc_now
 
 router = APIRouter(prefix="/api/test-runs", tags=["test-runs"])
 
@@ -243,7 +244,7 @@ def schedule_run(body: TestRunSchedule, db: Session = Depends(get_db)):
     scenario = db.get(Scenario, body.scenario_id)
     if not scenario:
         raise HTTPException(404, "Scenario not found")
-    if body.scheduled_at <= datetime.utcnow():
+    if body.scheduled_at <= utc_now():
         raise HTTPException(400, "scheduled_at must be in the future")
 
     run = TestRun(

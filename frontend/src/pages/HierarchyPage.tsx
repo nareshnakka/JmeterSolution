@@ -4,6 +4,7 @@ import { api } from '../api'
 import FilePicker from '../components/FilePicker'
 import TagInput from '../components/TagInput'
 import { useToast } from '../components/Toast'
+import { localInputToUtcIso, localTimezoneLabel } from '../utils/datetime'
 import type { Application, Build, Release, Scenario } from '../types'
 
 export default function HierarchyPage() {
@@ -115,8 +116,8 @@ export default function HierarchyPage() {
   async function schedule(scenarioId: number, scenarioName: string) {
     if (!scheduleAt) return
     try {
-      await api.scheduleTest(scenarioId, new Date(scheduleAt).toISOString())
-      toast.success(`Test scheduled for "${scenarioName}"`)
+      await api.scheduleTest(scenarioId, localInputToUtcIso(scheduleAt))
+      toast.success(`Test scheduled for "${scenarioName}". View it under Run Queue → Scheduled.`)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to schedule test')
     }
@@ -280,6 +281,7 @@ export default function HierarchyPage() {
                           type="datetime-local"
                           value={scheduleAt}
                           onChange={(e) => setScheduleAt(e.target.value)}
+                          title={`Local time (${localTimezoneLabel()})`}
                           style={{ width: 'auto', display: 'inline-block', marginRight: '0.5rem' }}
                         />
                         <button className="btn btn-secondary" onClick={() => schedule(s.id, s.name)}>Schedule</button>

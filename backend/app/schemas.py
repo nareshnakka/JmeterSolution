@@ -4,10 +4,10 @@ from datetime import datetime
 import json
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_serializer, field_validator, model_validator
 
 from app.models import ScenarioFileKind, TestRunStatus, TestRunType
-from app.utils.datetime_utils import naive_utc
+from app.utils.datetime_utils import naive_utc, to_utc_iso
 
 
 # --- Release hierarchy ---
@@ -118,6 +118,16 @@ class ScenarioListItem(BaseModel):
     queued_run_id: int | None = None
     is_queued: bool = False
 
+    @field_serializer(
+        "created_at",
+        "last_run_started_at",
+        "last_run_finished_at",
+        "next_run_at",
+        when_used="json",
+    )
+    def serialize_datetimes(self, value: datetime | None) -> str | None:
+        return to_utc_iso(value) if value else None
+
 
 class ScenarioScheduleCreate(BaseModel):
     frequency: str
@@ -143,6 +153,10 @@ class ScenarioScheduleOut(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+    @field_serializer("run_at", "next_run_at", "created_at", when_used="json")
+    def serialize_datetimes(self, value: datetime) -> str:
+        return to_utc_iso(value)
 
 
 # --- Test runs ---
@@ -188,6 +202,17 @@ class TestRunOut(BaseModel):
 
     model_config = {"from_attributes": True}
 
+    @field_serializer(
+        "scheduled_at",
+        "started_at",
+        "finished_at",
+        "archived_at",
+        "created_at",
+        when_used="json",
+    )
+    def serialize_datetimes(self, value: datetime | None) -> str | None:
+        return to_utc_iso(value) if value else None
+
 
 class QueuedRunItem(TestRunOut):
     queue_position: int
@@ -210,6 +235,10 @@ class ScheduledQueueItem(BaseModel):
     days_of_week: list[int] = Field(default_factory=list)
     next_run_at: datetime
     notes: str | None = None
+
+    @field_serializer("run_at", "next_run_at", when_used="json")
+    def serialize_datetimes(self, value: datetime | None) -> str | None:
+        return to_utc_iso(value) if value else None
 
 
 class TestRunQueueOut(BaseModel):
