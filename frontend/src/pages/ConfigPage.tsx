@@ -4,9 +4,24 @@ import { useToast } from '../components/Toast'
 import type { ArchiveRunItem, SystemConfig } from '../types'
 
 type ArchiveFilter = 'all' | 'active' | 'archived'
+type PendingArchiveOp = 'archiving' | 'extracting'
+type ArchiveAction = 'archive' | 'restore' | 'auto'
 
 function statusBadge(status: string) {
   return <span className={`badge badge-${status}`}>{status}</span>
+}
+
+function archiveStateBadge(r: { id: number; is_archived: boolean }, pending?: PendingArchiveOp) {
+  if (pending === 'archiving') {
+    return <span className="badge badge-archiving">Archiving…</span>
+  }
+  if (pending === 'extracting') {
+    return <span className="badge badge-extracting">Extracting…</span>
+  }
+  if (r.is_archived) {
+    return <span className="badge badge-cancelled">Archived</span>
+  }
+  return <span className="badge badge-completed">Active</span>
 }
 
 export default function ConfigPage() {
@@ -25,7 +40,8 @@ export default function ConfigPage() {
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [archiveFilter, setArchiveFilter] = useState<ArchiveFilter>('all')
   const [search, setSearch] = useState('')
-  const [busy, setBusy] = useState(false)
+  const [archiveAction, setArchiveAction] = useState<ArchiveAction | null>(null)
+  const [pendingOps, setPendingOps] = useState<Map<number, PendingArchiveOp>>(() => new Map())
 
   const loadConfig = useCallback(async () => {
     const data = await api.getConfig()
@@ -101,55 +117,87 @@ export default function ConfigPage() {
     })
   }
 
+  function markPending(ids: number[], op: PendingArchiveOp) {
+    setPendingOps((prev) => {
+      const next = new Map(prev)
+      ids.forEach((id) => next.set(id, op))
+      return next
+    })
+  }
+
+  function clearPending(ids: number[]) {
+    setPendingOps((prev) => {
+      const next = new Map(prev)
+      ids.forEach((id) => next.delete(id))
+      return next
+    })
+  }
+
   async function archiveSelected() {
     if (selectedActive.length === 0) return
     if (!window.confirm(`Archive ${selectedActive.length} selected run(s)?`)) return
-    setBusy(true)
+    const ids = [...selectedActive]
+    markPending(ids, 'archiving')
+    setArchiveAction('archive')
     try {
-      const result = await api.archiveRuns(selectedActive)
-      if (result.succeeded.length) toast.success(`Archived ${result.succeeded.length} run(s)`)
-      if (result.failed.length) toast.error(result.failed.map((f) => `#${f.id}: ${f.error}`).join('; '))
+      const result = await api.archiveRuns(ids)
       await loadRuns()
+      if (result.succeeded.length) {
+        toast.success(`Archived ${result.succeeded.length} run(s)`)
+      }
+      if (result.failed.length) {
+        toast.error(result.failed.map((f) => `#${f.id}: ${f.error}`).join('; '))
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Archive failed')
     } finally {
-      setBusy(false)
+      clearPending(ids)
+      setArchiveAction(null)
     }
   }
 
   async function restoreSelected() {
     if (selectedArchived.length === 0) return
     if (!window.confirm(`Restore ${selectedArchived.length} selected run(s)?`)) return
-    setBusy(true)
+    const ids = [...selectedArchived]
+    markPending(ids, 'extracting')
+    setArchiveAction('restore')
     try {
-      const result = await api.restoreRuns(selectedArchived)
-      if (result.succeeded.length) toast.success(`Restored ${result.succeeded.length} run(s)`)
-      if (result.failed.length) toast.error(result.failed.map((f) => `#${f.id}: ${f.error}`).join('; '))
+      const result = await api.restoreRuns(ids)
       await loadRuns()
+      if (result.succeeded.length) {
+        toast.success(`Restored ${result.succeeded.length} run(s)`)
+      }
+      if (result.failed.length) {
+        toast.error(result.failed.map((f) => `#${f.id}: ${f.error}`).join('; '))
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Restore failed')
     } finally {
-      setBusy(false)
+      clearPending(ids)
+      setArchiveAction(null)
     }
   }
 
   async function runAutoArchive() {
     if (!window.confirm('Run auto-archive now for runs older than the retention period?')) return
-    setBusy(true)
+    setArchiveAction('auto')
     try {
       const result = await api.runAutoArchive()
+      await loadRuns()
       if (result.archived.length) {
         toast.success(`Auto-archived ${result.archived.length} run(s) older than ${result.retention_months} month(s)`)
       } else {
         toast.success(`No runs older than ${result.retention_months} month(s) to archive`)
       }
-      await loadRuns()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Auto-archive failed')
     } finally {
-      setBusy(false)
+      setArchiveAction(null)
     }
   }
+
+  const archiveBusy = archiveAction !== null
 
   return (
     <>
@@ -283,21 +331,25 @@ export default function ConfigPage() {
           <button
             type="button"
             className="btn btn-secondary"
-            disabled={busy || selectedActive.length === 0}
+            disabled={archiveBusy || selectedActive.length === 0}
             onClick={archiveSelected}
           >
-            Archive Selected ({selectedActive.length})
+            {archiveAction === 'archive'
+              ? `Archiving (${selectedActive.length})…`
+              : `Archive Selected (${selectedActive.length})`}
           </button>
           <button
             type="button"
             className="btn btn-secondary"
-            disabled={busy || selectedArchived.length === 0}
+            disabled={archiveBusy || selectedArchived.length === 0}
             onClick={restoreSelected}
           >
-            Restore Selected ({selectedArchived.length})
+            {archiveAction === 'restore'
+              ? `Extracting (${selectedArchived.length})…`
+              : `Restore Selected (${selectedArchived.length})`}
           </button>
-          <button type="button" className="btn" disabled={busy} onClick={runAutoArchive}>
-            Run Auto-Archive Now
+          <button type="button" className="btn" disabled={archiveBusy} onClick={runAutoArchive}>
+            {archiveAction === 'auto' ? 'Archiving…' : 'Run Auto-Archive Now'}
           </button>
         </div>
         <div className="table-scroll">
@@ -333,13 +385,7 @@ export default function ConfigPage() {
                   <td>{r.scenario_name ?? '—'}</td>
                   <td>{statusBadge(r.status)}</td>
                   <td>{r.finished_at ? new Date(r.finished_at).toLocaleString() : '—'}</td>
-                  <td>
-                    {r.is_archived ? (
-                      <span className="badge badge-cancelled">Archived</span>
-                    ) : (
-                      <span className="badge badge-completed">Active</span>
-                    )}
-                  </td>
+                  <td>{archiveStateBadge(r, pendingOps.get(r.id))}</td>
                 </tr>
               ))}
             </tbody>

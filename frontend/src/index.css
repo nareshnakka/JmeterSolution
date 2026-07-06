@@ -280,6 +280,8 @@ tr.selected td { background: var(--brand-light); }
 .badge-failed { background: var(--danger-bg); color: var(--danger); }
 .badge-cancelled { background: #ecebea; color: var(--muted); }
 .badge-pending { background: var(--warning-bg); color: #b65c02; }
+.badge-archiving { background: var(--warning-bg); color: #b65c02; }
+.badge-extracting { background: var(--info-bg); color: var(--brand-dark); }
 
 .stat-row {
   display: flex;
