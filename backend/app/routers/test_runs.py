@@ -34,7 +34,11 @@ from app.schemas import (
 from app.services.jmeter_runner import run_manager
 from app.services.host_resources import load_host_resources
 from app.services.system_config import get_system_config
-from app.services.jtl_parser import parse_jtl_file
+from app.services.jtl_parser import (
+    get_error_detail_from_jtl,
+    parse_jtl_file,
+    search_errors_from_jtl,
+)
 from app.services.run_queue import try_start_or_queue
 from app.services.scheduler import schedule_test_run, unschedule_test_run
 from app.services.scenario_schedule import parse_days_of_week
@@ -383,6 +387,10 @@ def get_run_error_detail(run_id: int, sample_index: int, db: Session = Depends(g
     run = db.get(TestRun, run_id)
     if not run:
         raise HTTPException(404, "Test run not found")
+    if run.jtl_path and Path(run.jtl_path).is_file():
+        detail = get_error_detail_from_jtl(run.jtl_path, sample_index)
+        if detail:
+            return detail
     agg = _aggregator_for_run(run)
     if not agg:
         raise HTTPException(404, "No error data available")
@@ -402,6 +410,8 @@ def get_run_errors(
     run = db.get(TestRun, run_id)
     if not run:
         raise HTTPException(404, "Test run not found")
+    if run.jtl_path and Path(run.jtl_path).is_file():
+        return search_errors_from_jtl(run.jtl_path, search, limit)
     agg = _aggregator_for_run(run)
     if not agg:
         return []

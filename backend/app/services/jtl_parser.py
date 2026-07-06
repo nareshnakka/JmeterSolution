@@ -8,7 +8,7 @@ import statistics
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any
+from pathlib import Path
 
 from app.schemas import ErrorDetailOut, ErrorSample, LiveMetricsSnapshot, TransactionMetric
 from app.models import TestRunStatus
@@ -88,7 +88,9 @@ class MetricsAggregator:
         sample = _parse_jtl_line(line, self._header_map)
         if sample is None:
             return
+        self._ingest_sample(sample)
 
+    def _ingest_sample(self, sample: Sample) -> None:
         sample.sample_index = len(self.samples)
         self.samples.append(sample)
         if len(self.samples) == 1:
@@ -286,32 +288,16 @@ class MetricsAggregator:
         sample = self.samples[sample_index]
         if sample.success:
             return None
-        body = sample.response_data.strip() if sample.response_data else None
-        return ErrorDetailOut(
-            sample_index=sample.sample_index,
-            timestamp=sample.timestamp_ms,
-            label=sample.label,
-            response_code=sample.response_code,
-            response_message=sample.response_message,
-            failure_message=sample.failure_message,
-            thread_name=sample.thread_name,
-            url=sample.url,
-            elapsed_ms=sample.elapsed_ms,
-            response_body=body or None,
-            response_headers=sample.response_headers.strip() or None,
-            request_headers=sample.request_headers.strip() or None,
-        )
+        return sample_to_error_detail(sample)
 
 
-def _parse_jtl_line(line: str, header: dict[str, int]) -> Sample | None:
+def _sample_from_row(row: list[str], header: dict[str, int], sample_index: int) -> Sample | None:
+    if len(row) < 8:
+        return None
     try:
-        reader = csv.reader(io.StringIO(line))
-        row = next(reader)
-        if len(row) < 8:
-            return None
         all_threads_raw = _col(row, header, "allThreads", "0")
         return Sample(
-            sample_index=0,
+            sample_index=sample_index,
             timestamp_ms=int(_col(row, header, "timeStamp", "0")),
             elapsed_ms=float(_col(row, header, "elapsed", "0") or 0),
             label=_col(row, header, "label"),
@@ -326,8 +312,120 @@ def _parse_jtl_line(line: str, header: dict[str, int]) -> Sample | None:
             response_headers=_col(row, header, "responseHeaders"),
             request_headers=_col(row, header, "requestHeaders"),
         )
-    except (ValueError, StopIteration):
+    except ValueError:
         return None
+
+
+def _parse_jtl_line(line: str, header: dict[str, int]) -> Sample | None:
+    try:
+        reader = csv.reader(io.StringIO(line))
+        row = next(reader)
+        return _sample_from_row(row, header, 0)
+    except StopIteration:
+        return None
+
+
+def get_sample_from_jtl(path: str | Path, sample_index: int) -> Sample | None:
+    """Load one sample by index using proper CSV parsing (supports multiline response bodies)."""
+    jtl = Path(path)
+    if not jtl.is_file():
+        return None
+    with open(jtl, encoding="utf-8", errors="replace") as f:
+        reader = csv.reader(f)
+        try:
+            header_row = next(reader)
+        except StopIteration:
+            return None
+        header = {name.strip(): index for index, name in enumerate(header_row)}
+        for idx, row in enumerate(reader):
+            if idx == sample_index:
+                return _sample_from_row(row, header, sample_index)
+            if idx > sample_index:
+                break
+    return None
+
+
+def sample_to_error_detail(sample: Sample) -> ErrorDetailOut:
+    body = sample.response_data.strip() if sample.response_data else None
+    return ErrorDetailOut(
+        sample_index=sample.sample_index,
+        timestamp=sample.timestamp_ms,
+        label=sample.label,
+        response_code=sample.response_code,
+        response_message=sample.response_message,
+        failure_message=sample.failure_message,
+        thread_name=sample.thread_name,
+        url=sample.url,
+        elapsed_ms=sample.elapsed_ms,
+        response_body=body or None,
+        response_headers=sample.response_headers.strip() or None,
+        request_headers=sample.request_headers.strip() or None,
+    )
+
+
+def get_error_detail_from_jtl(path: str | Path, sample_index: int) -> ErrorDetailOut | None:
+    sample = get_sample_from_jtl(path, sample_index)
+    if sample is None or sample.success:
+        return None
+    return sample_to_error_detail(sample)
+
+
+def search_errors_from_jtl(
+    path: str | Path,
+    query: str | None = None,
+    limit: int = 200,
+) -> list[ErrorSample]:
+    """Return failed samples from a JTL file, most recent first."""
+    jtl = Path(path)
+    if not jtl.is_file():
+        return []
+
+    failed: list[ErrorSample] = []
+    with open(jtl, encoding="utf-8", errors="replace") as f:
+        reader = csv.reader(f)
+        try:
+            header_row = next(reader)
+        except StopIteration:
+            return []
+        header = {name.strip(): index for index, name in enumerate(header_row)}
+        for idx, row in enumerate(reader):
+            sample = _sample_from_row(row, header, idx)
+            if sample is None or sample.success:
+                continue
+            failed.append(
+                ErrorSample(
+                    sample_index=sample.sample_index,
+                    timestamp=sample.timestamp_ms,
+                    label=sample.label,
+                    response_code=sample.response_code,
+                    response_message=sample.response_message,
+                    failure_message=sample.failure_message,
+                    thread_name=sample.thread_name,
+                    url=sample.url,
+                    elapsed_ms=sample.elapsed_ms,
+                )
+            )
+
+    errors = list(reversed(failed))
+    if not query or not query.strip():
+        return errors[:limit]
+
+    q = query.strip().lower()
+
+    def _matches(error: ErrorSample) -> bool:
+        for val in (
+            error.label,
+            error.response_code,
+            error.response_message,
+            error.failure_message,
+            error.thread_name,
+            error.url,
+        ):
+            if val and q in val.lower():
+                return True
+        return False
+
+    return [e for e in errors if _matches(e)][:limit]
 
 
 def _percentile(sorted_vals: list[float], pct: float) -> float:
@@ -341,10 +439,21 @@ def _percentile(sorted_vals: list[float], pct: float) -> float:
     return sorted_vals[f] + (sorted_vals[c] - sorted_vals[f]) * (k - f)
 
 
-def parse_jtl_file(path: str) -> MetricsAggregator:
-    """Parse a completed JTL file for comparison / post-run views."""
+def parse_jtl_file(path: str | Path) -> MetricsAggregator:
+    """Parse a JTL file with CSV-aware parsing (handles multiline response bodies)."""
     agg = MetricsAggregator(test_run_id=0, start_wall_time=time.time())
-    with open(path, encoding="utf-8", errors="replace") as f:
-        for line in f:
-            agg.ingest_line(line)
+    jtl = Path(path)
+    if not jtl.is_file():
+        return agg
+    with open(jtl, encoding="utf-8", errors="replace") as f:
+        reader = csv.reader(f)
+        try:
+            header_row = next(reader)
+        except StopIteration:
+            return agg
+        agg._header_map = {name.strip(): index for index, name in enumerate(header_row)}
+        for idx, row in enumerate(reader):
+            sample = _sample_from_row(row, agg._header_map, idx)
+            if sample is not None:
+                agg._ingest_sample(sample)
     return agg

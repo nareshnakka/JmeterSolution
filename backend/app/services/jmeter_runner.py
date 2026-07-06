@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import SessionLocal
 from app.models import Application, Build, Release, Scenario, TestRun, TestRunStatus
-from app.services.jtl_parser import MetricsAggregator
+from app.services.jtl_parser import MetricsAggregator, parse_jtl_file
 from app.services.host_resources import (
     append_host_sample,
     load_host_resources,
@@ -127,8 +127,10 @@ class RunManager:
             "-Jjmeter.save.saveservice.autoflush=true",
             "-Jjmeter.save.saveservice.response_data=true",
             "-Jjmeter.save.saveservice.response_data.on_error=true",
+            "-Jjmeter.save.saveservice.response_data.max_size=1048576",
             "-Jjmeter.save.saveservice.responseHeaders=true",
             "-Jjmeter.save.saveservice.requestHeaders=true",
+            "-Jjmeter.save.saveservice.assertion_results_failure_message=true",
             f"-JRUN_DIR={run_path}",
             f"-JRUN_ID={test_run.id}",
             f"-JJTL_PATH={jtl}",
@@ -212,10 +214,11 @@ class RunManager:
             if jtl_path.exists():
                 size = jtl_path.stat().st_size
                 if size > last_size:
-                    with open(jtl_path, encoding="utf-8", errors="replace") as f:
-                        f.seek(last_size)
-                        for line in f:
-                            agg.ingest_line(line)
+                    refreshed = parse_jtl_file(jtl_path)
+                    refreshed.test_run_id = run_id
+                    refreshed.status = agg.status
+                    self._aggregators[run_id] = refreshed
+                    agg = refreshed
                     last_size = size
             snap = agg.snapshot()
             await self.broadcast(run_id, {"type": "metrics", "data": snap.model_dump(mode="json")})
@@ -223,10 +226,11 @@ class RunManager:
 
         # Final read
         if jtl_path.exists():
-            with open(jtl_path, encoding="utf-8", errors="replace") as f:
-                f.seek(last_size)
-                for line in f:
-                    agg.ingest_line(line)
+            refreshed = parse_jtl_file(jtl_path)
+            refreshed.test_run_id = run_id
+            refreshed.status = agg.status
+            self._aggregators[run_id] = refreshed
+            agg = refreshed
 
         exit_code = proc.returncode
         try:
