@@ -2,19 +2,26 @@ const BASE = '/api'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, init)
+  const text = await res.text()
+
   if (!res.ok) {
-    const text = await res.text()
     try {
       const json = JSON.parse(text) as { detail?: string | { msg: string }[] }
       if (typeof json.detail === 'string') throw new Error(json.detail)
       if (Array.isArray(json.detail)) throw new Error(json.detail.map((d) => d.msg).join(', '))
     } catch (e) {
-      if (e instanceof Error && e.message !== text) throw e
+      if (e instanceof Error && !(e instanceof SyntaxError)) throw e
     }
-    throw new Error(text || res.statusText)
+    throw new Error(text.trim() || res.statusText)
   }
-  if (res.status === 204) return undefined as T
-  return res.json()
+
+  if (res.status === 204 || !text) return undefined as T
+
+  try {
+    return JSON.parse(text) as T
+  } catch {
+    throw new Error('Invalid response from server')
+  }
 }
 
 export const api = {

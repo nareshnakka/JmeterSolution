@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
 from app.models import ScheduleFrequency, ScenarioSchedule, TestRun, TestRunStatus, TestRunType
+from app.utils.datetime_utils import naive_utc
 from app.services.run_queue import try_start_or_queue
 
 DAY_NAMES = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
@@ -51,6 +52,10 @@ def compute_next_run_at(
     after: datetime | None = None,
 ) -> datetime | None:
     now = after or datetime.utcnow()
+    run_at = naive_utc(run_at)
+    if after is not None:
+        after = naive_utc(after)
+        now = after
 
     if frequency == ScheduleFrequency.ONCE:
         return run_at if run_at > now else None

@@ -4,9 +4,10 @@ from datetime import datetime
 import json
 from typing import Any
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.models import ScenarioFileKind, TestRunStatus, TestRunType
+from app.utils.datetime_utils import naive_utc
 
 
 # --- Release hierarchy ---
@@ -124,6 +125,11 @@ class ScenarioScheduleCreate(BaseModel):
     days_of_week: list[int] | None = None
     notes: str | None = None
 
+    @field_validator("run_at")
+    @classmethod
+    def normalize_run_at(cls, value: datetime) -> datetime:
+        return naive_utc(value)
+
 
 class ScenarioScheduleOut(BaseModel):
     id: int
@@ -150,6 +156,11 @@ class TestRunSchedule(BaseModel):
     scenario_id: int
     scheduled_at: datetime
     notes: str | None = None
+
+    @field_validator("scheduled_at")
+    @classmethod
+    def normalize_scheduled_at(cls, value: datetime) -> datetime:
+        return naive_utc(value)
 
 
 class TestRunOut(BaseModel):

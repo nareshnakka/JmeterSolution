@@ -391,7 +391,10 @@ def list_all_scenarios(
                 active_run_id=active.id if active else None,
                 is_running=active is not None,
                 schedule_id=schedule.id if schedule else None,
-                schedule_frequency=schedule.frequency.value if schedule else None,
+                schedule_frequency=(
+                    schedule.frequency.value if schedule and hasattr(schedule.frequency, "value")
+                    else str(schedule.frequency) if schedule else None
+                ),
                 next_run_at=schedule.next_run_at if schedule else None,
                 queued_run_id=queued.id if queued else None,
                 is_queued=queued is not None,
@@ -401,10 +404,11 @@ def list_all_scenarios(
 
 
 def _schedule_to_out(schedule: ScenarioSchedule) -> ScenarioScheduleOut:
+    frequency = schedule.frequency.value if hasattr(schedule.frequency, "value") else str(schedule.frequency)
     return ScenarioScheduleOut(
         id=schedule.id,
         scenario_id=schedule.scenario_id,
-        frequency=schedule.frequency.value,
+        frequency=frequency,
         run_at=schedule.run_at,
         days_of_week=parse_days_of_week(schedule.days_of_week),
         next_run_at=schedule.next_run_at,
@@ -443,15 +447,20 @@ def create_scenario_schedule_route(
     except ValueError as exc:
         raise HTTPException(400, "Invalid schedule frequency") from exc
 
-    schedule = create_scenario_schedule(
-        db,
-        scenario_id,
-        frequency,
-        body.run_at,
-        body.days_of_week,
-        body.notes,
-    )
-    return _schedule_to_out(schedule)
+    try:
+        schedule = create_scenario_schedule(
+            db,
+            scenario_id,
+            frequency,
+            body.run_at,
+            body.days_of_week,
+            body.notes,
+        )
+        return _schedule_to_out(schedule)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(500, f"Failed to save schedule: {exc}") from exc
 
 
 @router.delete("/scenarios/{scenario_id}/schedule")
