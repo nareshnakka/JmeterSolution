@@ -8,8 +8,9 @@ from pathlib import Path
 
 import psutil
 
+from app.services.system_config import DEFAULT_RESOURCE_SAMPLE_INTERVAL_SECONDS
+
 HOST_RESOURCES_FILENAME = "host_resources.json"
-SAMPLE_INTERVAL_SECONDS = 20
 
 
 def read_host_sample() -> dict:
@@ -30,20 +31,24 @@ def resources_path(run_dir: Path) -> Path:
 def load_host_resources(run_dir: Path) -> dict:
     path = resources_path(run_dir)
     if not path.is_file():
-        return {"interval_seconds": SAMPLE_INTERVAL_SECONDS, "samples": []}
+        return {"interval_seconds": DEFAULT_RESOURCE_SAMPLE_INTERVAL_SECONDS, "samples": []}
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
         if isinstance(data, dict) and isinstance(data.get("samples"), list):
             return data
     except (json.JSONDecodeError, OSError):
         pass
-    return {"interval_seconds": SAMPLE_INTERVAL_SECONDS, "samples": []}
+    return {"interval_seconds": DEFAULT_RESOURCE_SAMPLE_INTERVAL_SECONDS, "samples": []}
 
 
-def save_host_resources(run_dir: Path, samples: list[dict]) -> None:
+def save_host_resources(
+    run_dir: Path,
+    samples: list[dict],
+    interval_seconds: int = DEFAULT_RESOURCE_SAMPLE_INTERVAL_SECONDS,
+) -> None:
     run_dir.mkdir(parents=True, exist_ok=True)
     payload = {
-        "interval_seconds": SAMPLE_INTERVAL_SECONDS,
+        "interval_seconds": interval_seconds,
         "samples": samples,
     }
     resources_path(run_dir).write_text(
@@ -52,7 +57,12 @@ def save_host_resources(run_dir: Path, samples: list[dict]) -> None:
     )
 
 
-def append_host_sample(run_dir: Path, started_at: datetime, samples: list[dict]) -> dict:
+def append_host_sample(
+    run_dir: Path,
+    started_at: datetime,
+    samples: list[dict],
+    interval_seconds: int,
+) -> dict:
     elapsed = max(0.0, (datetime.utcnow() - started_at).total_seconds())
     sample = {
         "t": round(elapsed, 1),
@@ -60,5 +70,5 @@ def append_host_sample(run_dir: Path, started_at: datetime, samples: list[dict])
         "recorded_at": datetime.utcnow().isoformat(),
     }
     samples.append(sample)
-    save_host_resources(run_dir, samples)
+    save_host_resources(run_dir, samples, interval_seconds)
     return sample

@@ -1,82 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-} from 'recharts'
 import { api } from '../api'
+import ErrorDetailModal from '../components/ErrorDetailModal'
 import JmeterLogConsole from '../components/JmeterLogConsole'
 import HostResourceChart from '../components/HostResourceChart'
+import {
+  ActiveUsersChart,
+  ErrorsOverTimeChart,
+  ResponseTimeChart,
+} from '../components/live/LiveDashboardCharts'
 import { useToast } from '../components/Toast'
 import type { ErrorSample, LiveMetrics, TestRun, TransactionMetric } from '../types'
-import { maxTimeFromPoints, timelineScaleForSeconds } from '../utils/timeline'
-import { chartTheme } from '../utils/chartTheme'
+import { timelineScaleForSeconds } from '../utils/timeline'
 
-const METRICS_POLL_MS = 10_000
+const DEFAULT_REFRESH_SECONDS = 10
 
-type UsersPoint = { t: number; users: number }
 type GraphSeries = { label: string; points: { t: number; avg_ms: number }[] }
 type ErrorGraphSeries = { label: string; points: { t: number; errors: number }[] }
-
-function mergeUsersSeries(prev: UsersPoint[], incoming: UsersPoint[]): UsersPoint[] {
-  if (incoming.length === 0) return prev
-  const byT = new Map(prev.map((p) => [p.t, p.users]))
-  for (const p of incoming) {
-    byT.set(p.t, p.users)
-  }
-  return Array.from(byT.entries())
-    .map(([t, users]) => ({ t, users }))
-    .sort((a, b) => a.t - b.t)
-}
-
-function mergeGraphSeries(prev: GraphSeries[], incoming: GraphSeries[]): GraphSeries[] {
-  if (incoming.length === 0) return prev
-  const byLabel = new Map<string, Map<number, number>>()
-  for (const s of prev) {
-    byLabel.set(s.label, new Map(s.points.map((p) => [p.t, p.avg_ms])))
-  }
-  for (const s of incoming) {
-    if (!byLabel.has(s.label)) {
-      byLabel.set(s.label, new Map())
-    }
-    const pointMap = byLabel.get(s.label)!
-    for (const p of s.points) {
-      pointMap.set(p.t, p.avg_ms)
-    }
-  }
-  return Array.from(byLabel.entries())
-    .map(([label, pointMap]) => ({
-      label,
-      points: Array.from(pointMap.entries())
-        .map(([t, avg_ms]) => ({ t, avg_ms }))
-        .sort((a, b) => a.t - b.t),
-    }))
-    .filter((s) => s.points.length > 0)
-}
-
-function mergeErrorsGraphSeries(prev: ErrorGraphSeries[], incoming: ErrorGraphSeries[]): ErrorGraphSeries[] {
-  if (incoming.length === 0) return prev
-  const byLabel = new Map<string, Map<number, number>>()
-  for (const s of prev) {
-    byLabel.set(s.label, new Map(s.points.map((p) => [p.t, p.errors])))
-  }
-  for (const s of incoming) {
-    if (!byLabel.has(s.label)) {
-      byLabel.set(s.label, new Map())
-    }
-    const pointMap = byLabel.get(s.label)!
-    for (const p of s.points) {
-      pointMap.set(p.t, p.errors)
-    }
-  }
-  return Array.from(byLabel.entries())
-    .map(([label, pointMap]) => ({
-      label,
-      points: Array.from(pointMap.entries())
-        .map(([t, errors]) => ({ t, errors }))
-        .sort((a, b) => a.t - b.t),
-    }))
-    .filter((s) => s.points.length > 0)
-}
 
 export default function LiveDashboard() {
   const { runId } = useParams()
@@ -84,7 +24,6 @@ export default function LiveDashboard() {
   const toast = useToast()
   const [run, setRun] = useState<TestRun | null>(null)
   const [metrics, setMetrics] = useState<LiveMetrics | null>(null)
-  const [usersSeries, setUsersSeries] = useState<UsersPoint[]>([])
   const lastActiveThreadsRef = useRef(0)
   const [stopping, setStopping] = useState(false)
   const [selectedLabels, setSelectedLabels] = useState<Set<string>>(new Set())
@@ -96,6 +35,26 @@ export default function LiveDashboard() {
   const [errorFilter, setErrorFilter] = useState('')
   const [displayedErrors, setDisplayedErrors] = useState<ErrorSample[]>([])
   const [errorsLoading, setErrorsLoading] = useState(false)
+  const [viewingError, setViewingError] = useState<ErrorSample | null>(null)
+  const [refreshIntervalSeconds, setRefreshIntervalSeconds] = useState(DEFAULT_REFRESH_SECONDS)
+  const [refreshGeneration, setRefreshGeneration] = useState(0)
+
+  const refreshPollMs = refreshIntervalSeconds * 1000
+  const refreshInFlightRef = useRef(false)
+  const graphIsActiveRef = useRef(false)
+  const errorsGraphIsActiveRef = useRef(false)
+  const errorSearchRef = useRef('')
+  const skipSearchRefreshRef = useRef(true)
+
+  useEffect(() => {
+    api.getConfig()
+      .then((cfg) => {
+        setRefreshIntervalSeconds(
+          cfg.live_dashboard_refresh_interval_seconds ?? DEFAULT_REFRESH_SECONDS
+        )
+      })
+      .catch(console.error)
+  }, [])
 
   useEffect(() => {
     api.getTestRun(id).then(setRun).catch(console.error)
@@ -103,7 +62,6 @@ export default function LiveDashboard() {
 
   useEffect(() => {
     lastActiveThreadsRef.current = 0
-    setUsersSeries([])
     setMetrics(null)
     setGraphData([])
     setErrorsGraphData([])
@@ -112,136 +70,58 @@ export default function LiveDashboard() {
     setGraphMode('individual')
     setErrorsGraphMode('cumulative')
     setErrorFilter('')
+    setRefreshGeneration(0)
+    skipSearchRefreshRef.current = true
   }, [id])
 
   const applyMetrics = useCallback((m: LiveMetrics) => {
     if (m.active_threads > 0) {
       lastActiveThreadsRef.current = m.active_threads
     }
-    setMetrics(m)
-    setUsersSeries((prev) => mergeUsersSeries(prev, m.active_users_series ?? []))
+    setMetrics((prev) => {
+      if (
+        prev &&
+        prev.status === m.status &&
+        prev.active_threads === m.active_threads &&
+        prev.total_samples === m.total_samples &&
+        prev.total_errors === m.total_errors &&
+        Math.abs(prev.elapsed_seconds - m.elapsed_seconds) < 0.5 &&
+        prev.transactions.length === m.transactions.length
+      ) {
+        return prev
+      }
+      return m
+    })
   }, [])
-
-  const fetchMetrics = useCallback(async () => {
-    try {
-      const m = await api.getMetrics(id)
-      applyMetrics(m)
-      if (m.status === 'completed' || m.status === 'failed' || m.status === 'cancelled') {
-        setStopping(false)
-      }
-    } catch {
-      /* JTL may not exist yet at test start */
-    }
-  }, [id, applyMetrics])
-
-  useEffect(() => {
-    fetchMetrics()
-    const interval = setInterval(fetchMetrics, METRICS_POLL_MS)
-    return () => clearInterval(interval)
-  }, [fetchMetrics])
-
-  useEffect(() => {
-    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-    const ws = new WebSocket(`${proto}://${window.location.host}/ws/test-runs/${id}`)
-
-    ws.onmessage = (ev) => {
-      const msg = JSON.parse(ev.data)
-      if (msg.type === 'finished') {
-        setStopping(false)
-        fetchMetrics()
-      }
-    }
-
-    return () => ws.close()
-  }, [id, fetchMetrics])
 
   const effectiveErrorSearch = useMemo(
     () => (errorFilter.trim() || labelFilter.trim()),
     [errorFilter, labelFilter]
   )
 
-  const fetchErrors = useCallback(async () => {
-    setErrorsLoading(true)
-    try {
-      const data = await api.getRunErrors(
-        id,
-        effectiveErrorSearch || undefined
-      )
-      setDisplayedErrors(data)
-    } catch {
-      setDisplayedErrors([])
-    } finally {
-      setErrorsLoading(false)
-    }
-  }, [id, effectiveErrorSearch])
-
   useEffect(() => {
-    void fetchErrors()
-    const interval = setInterval(() => void fetchErrors(), METRICS_POLL_MS)
-    return () => clearInterval(interval)
-  }, [fetchErrors])
+    errorSearchRef.current = effectiveErrorSearch
+  }, [effectiveErrorSearch])
 
-  const filteredTransactions = useMemo(() => {
-    if (!metrics) return []
-    if (!labelFilter) return metrics.transactions
-    const q = labelFilter.toLowerCase()
-    return metrics.transactions.filter((t) => t.label.toLowerCase().includes(q))
-  }, [metrics, labelFilter])
-
-  const hasErrorsGraphPoints = useMemo(
-    () => errorsGraphData.some((s) => s.points.length > 0),
-    [errorsGraphData]
-  )
-
-  const toggleLabel = (label: string) => {
-    setSelectedLabels((prev) => {
-      const next = new Set(prev)
-      if (next.has(label)) next.delete(label)
-      else next.add(label)
-      return next
-    })
-  }
-
-  const selectAll = () => {
-    if (!metrics) return
-    setSelectedLabels(new Set(metrics.transactions.map((t) => t.label)))
-  }
-
-  const clearSelection = () => {
-    setSelectedLabels(new Set())
-    setGraphData([])
-    if (errorsGraphMode !== 'cumulative') {
-      setErrorsGraphData([])
-    }
-  }
-
-  const loadGraph = useCallback(async (cumulative: boolean, merge = false) => {
+  const loadGraph = useCallback(async (cumulative: boolean) => {
     const labels = cumulative ? ['ALL'] : Array.from(selectedLabels)
     if (!cumulative && labels.length === 0) return
     setGraphMode(cumulative ? 'cumulative' : 'individual')
     try {
       const data = await api.getGraph(id, labels, cumulative)
-      if (merge) {
-        setGraphData((prev) => mergeGraphSeries(prev, data.series))
-      } else {
-        setGraphData(data.series)
-      }
+      setGraphData(data.series)
     } catch {
       /* graph data may not exist yet */
     }
   }, [id, selectedLabels])
 
-  const loadErrorsGraph = useCallback(async (cumulative: boolean, merge = false) => {
+  const loadErrorsGraph = useCallback(async (cumulative: boolean) => {
     const labels = cumulative ? ['ALL'] : Array.from(selectedLabels)
     if (!cumulative && labels.length === 0) return
     setErrorsGraphMode(cumulative ? 'cumulative' : 'individual')
     try {
       const data = await api.getErrorsGraph(id, labels, cumulative)
-      if (merge) {
-        setErrorsGraphData((prev) => mergeErrorsGraphSeries(prev, data.series))
-      } else {
-        setErrorsGraphData(data.series)
-      }
+      setErrorsGraphData(data.series)
     } catch {
       /* error graph data may not exist yet */
     }
@@ -255,63 +135,139 @@ export default function LiveDashboard() {
     (metrics?.total_errors ?? 0) > 0
 
   useEffect(() => {
+    graphIsActiveRef.current = graphIsActive
+  }, [graphIsActive])
+
+  useEffect(() => {
+    errorsGraphIsActiveRef.current = errorsGraphIsActive
+  }, [errorsGraphIsActive])
+
+  const refreshDashboard = useCallback(async (options?: { showErrorsLoading?: boolean }) => {
+    if (refreshInFlightRef.current) return
+    refreshInFlightRef.current = true
+    try {
+      try {
+        const m = await api.getMetrics(id)
+        applyMetrics(m)
+        if (m.status === 'completed' || m.status === 'failed' || m.status === 'cancelled') {
+          setStopping(false)
+        }
+      } catch {
+        /* JTL may not exist yet at test start */
+      }
+
+      const secondary: Promise<void>[] = []
+
+      if (options?.showErrorsLoading) {
+        setErrorsLoading(true)
+      }
+      secondary.push(
+        api.getRunErrors(id, errorSearchRef.current || undefined)
+          .then((data) => setDisplayedErrors(data))
+          .catch(() => setDisplayedErrors([]))
+          .finally(() => {
+            if (options?.showErrorsLoading) setErrorsLoading(false)
+          })
+      )
+
+      if (graphIsActiveRef.current) {
+        const cumulative = graphMode === 'cumulative'
+        const labels = cumulative ? ['ALL'] : Array.from(selectedLabels)
+        if (cumulative || labels.length > 0) {
+          secondary.push(
+            api.getGraph(id, labels, cumulative)
+              .then((data) => setGraphData(data.series))
+              .catch(() => {})
+          )
+        }
+      }
+
+      if (errorsGraphIsActiveRef.current) {
+        const cumulative = errorsGraphMode === 'cumulative'
+        const labels = cumulative ? ['ALL'] : Array.from(selectedLabels)
+        if (cumulative || labels.length > 0) {
+          secondary.push(
+            api.getErrorsGraph(id, labels, cumulative)
+              .then((data) => setErrorsGraphData(data.series))
+              .catch(() => {})
+          )
+        }
+      }
+
+      await Promise.all(secondary)
+      setRefreshGeneration((g) => g + 1)
+    } finally {
+      refreshInFlightRef.current = false
+    }
+  }, [id, applyMetrics, graphMode, errorsGraphMode, selectedLabels])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function tick(showErrorsLoading: boolean) {
+      if (cancelled) return
+      await refreshDashboard({ showErrorsLoading })
+    }
+
+    void tick(true)
+    const interval = setInterval(() => void tick(false), refreshPollMs)
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
+  }, [refreshPollMs, refreshDashboard])
+
+  useEffect(() => {
+    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
+    const ws = new WebSocket(`${proto}://${window.location.host}/ws/test-runs/${id}`)
+
+    ws.onmessage = (ev) => {
+      const msg = JSON.parse(ev.data)
+      if (msg.type === 'finished') {
+        setStopping(false)
+        void refreshDashboard()
+      }
+    }
+
+    return () => ws.close()
+  }, [id, refreshDashboard])
+
+  useEffect(() => {
     if (graphMode === 'cumulative') {
-      void loadGraph(true, false)
+      void loadGraph(true)
     } else if (selectedLabels.size > 0) {
-      void loadGraph(false, false)
+      void loadGraph(false)
     } else {
       setGraphData([])
     }
   }, [graphMode, selectedLabelsKey, loadGraph])
 
   useEffect(() => {
-    if (!graphIsActive) return
-    const interval = setInterval(() => {
-      void loadGraph(graphMode === 'cumulative', true)
-    }, METRICS_POLL_MS)
-    return () => clearInterval(interval)
-  }, [graphIsActive, graphMode, loadGraph])
-
-  useEffect(() => {
     if (errorsGraphMode === 'cumulative') {
-      void loadErrorsGraph(true, false)
+      void loadErrorsGraph(true)
     } else if (selectedLabels.size > 0) {
-      void loadErrorsGraph(false, false)
+      void loadErrorsGraph(false)
     } else {
       setErrorsGraphData([])
     }
   }, [errorsGraphMode, selectedLabelsKey, loadErrorsGraph])
 
   useEffect(() => {
-    if (metrics && metrics.total_errors > 0 && errorsGraphMode === 'cumulative' && !hasErrorsGraphPoints) {
-      void loadErrorsGraph(true, false)
+    if (skipSearchRefreshRef.current) {
+      skipSearchRefreshRef.current = false
+      return
     }
-  }, [metrics?.total_errors, errorsGraphMode, hasErrorsGraphPoints, loadErrorsGraph])
+    void refreshDashboard({ showErrorsLoading: true })
+  }, [effectiveErrorSearch, refreshDashboard])
 
-  useEffect(() => {
-    if (!errorsGraphIsActive) return
-    const interval = setInterval(() => {
-      void loadErrorsGraph(errorsGraphMode === 'cumulative', true)
-    }, METRICS_POLL_MS)
-    return () => clearInterval(interval)
-  }, [errorsGraphIsActive, errorsGraphMode, loadErrorsGraph])
+  const filteredTransactions = useMemo(() => {
+    if (!metrics) return []
+    if (!labelFilter) return metrics.transactions
+    const q = labelFilter.toLowerCase()
+    return metrics.transactions.filter((t) => t.label.toLowerCase().includes(q))
+  }, [metrics, labelFilter])
 
-  const usersChartData = usersSeries
-
-  const usersTimeline = useMemo(
-    () => timelineScaleForSeconds(maxTimeFromPoints(usersChartData)),
-    [usersChartData]
-  )
-
-  const responseTimeline = useMemo(() => {
-    const points = graphData.flatMap((s) => s.points)
-    return timelineScaleForSeconds(maxTimeFromPoints(points))
-  }, [graphData])
-
-  const errorsTimeline = useMemo(() => {
-    const points = errorsGraphData.flatMap((s) => s.points)
-    return timelineScaleForSeconds(maxTimeFromPoints(points))
-  }, [errorsGraphData])
+  const usersChartData = metrics?.active_users_series ?? []
 
   const elapsedDisplay = useMemo(() => {
     if (!metrics) return '—'
@@ -327,6 +283,28 @@ export default function LiveDashboard() {
   const isRunning =
     !stopping &&
     (metrics?.status === 'running' || metrics?.status === 'pending' || run?.status === 'running' || run?.status === 'pending')
+
+  const toggleLabel = useCallback((label: string) => {
+    setSelectedLabels((prev) => {
+      const next = new Set(prev)
+      if (next.has(label)) next.delete(label)
+      else next.add(label)
+      return next
+    })
+  }, [])
+
+  const selectAll = useCallback(() => {
+    if (!metrics) return
+    setSelectedLabels(new Set(metrics.transactions.map((t) => t.label)))
+  }, [metrics])
+
+  const clearSelection = useCallback(() => {
+    setSelectedLabels(new Set())
+    setGraphData([])
+    if (errorsGraphMode !== 'cumulative') {
+      setErrorsGraphData([])
+    }
+  }, [errorsGraphMode])
 
   async function stopTest() {
     if (!isRunning || stopping) return
@@ -388,165 +366,31 @@ export default function LiveDashboard() {
       )}
 
       <div className="grid-2">
-        <div className="card">
-          <h2>Active Users (live)</h2>
-          <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '-0.25rem' }}>
-            Refreshes every 10s
-          </p>
-          <div className="chart-wrap">
-            {usersChartData.length > 0 ? (
-              <ResponsiveContainer>
-                <LineChart data={usersChartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
-                  <XAxis
-                    dataKey="t"
-                    stroke={chartTheme.axis}
-                    tickFormatter={(t) => usersTimeline.formatValue(Number(t))}
-                    label={{ value: usersTimeline.axisLabel, position: 'insideBottom', offset: -5 }}
-                  />
-                  <YAxis stroke={chartTheme.axis} allowDecimals={false} />
-                  <Tooltip
-                    contentStyle={{ background: chartTheme.tooltipBg, border: `1px solid ${chartTheme.tooltipBorder}` }}
-                    labelFormatter={(label) => usersTimeline.formatWithUnit(Number(label))}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="users"
-                    stroke={chartTheme.users}
-                    dot={false}
-                    name="Active Users"
-                    isAnimationActive={false}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            ) : (
-              <p className="empty">Waiting for data…</p>
-            )}
-          </div>
-        </div>
-
-        <div className="card">
-          <h2>Transaction Response Time</h2>
-          <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '-0.25rem' }}>
-            Refreshes every 10s when transactions are selected
-          </p>
-          <div className="toolbar">
-            <button className="btn btn-secondary" onClick={selectAll}>Select All</button>
-            <button className="btn btn-secondary" onClick={clearSelection} disabled={selectedLabels.size === 0}>
-              Clear Selection
-            </button>
-            <button className="btn" onClick={() => loadGraph(false)} disabled={selectedLabels.size === 0}>
-              Graph Selected
-            </button>
-            <button className="btn" onClick={() => loadGraph(true)}>Cumulative Graph</button>
-          </div>
-          <div className="chart-wrap">
-            {graphData.length > 0 ? (
-              <ResponsiveContainer>
-                <LineChart>
-                  <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
-                  <XAxis
-                    dataKey="t"
-                    type="number"
-                    stroke={chartTheme.axis}
-                    tickFormatter={(t) => responseTimeline.formatValue(Number(t))}
-                    label={{ value: responseTimeline.axisLabel, position: 'insideBottom', offset: -5 }}
-                  />
-                  <YAxis stroke={chartTheme.axis} unit=" ms" />
-                  <Tooltip
-                    contentStyle={{ background: chartTheme.tooltipBg, border: `1px solid ${chartTheme.tooltipBorder}` }}
-                    labelFormatter={(label) => responseTimeline.formatWithUnit(Number(label))}
-                  />
-                  <Legend />
-                  {graphData.map((s, i) => (
-                    <Line
-                      key={s.label}
-                      data={s.points}
-                      type="monotone"
-                      dataKey="avg_ms"
-                      name={s.label}
-                      stroke={chartTheme.series[i % chartTheme.series.length]}
-                      dot={false}
-                      isAnimationActive={false}
-                    />
-                  ))}
-                </LineChart>
-              </ResponsiveContainer>
-            ) : (
-              <p className="empty">Select transaction(s) to view response time graph</p>
-            )}
-          </div>
-          {graphMode === 'individual' && selectedLabels.size > 0 && (
-            <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '0.5rem' }}>
-              Showing individual timeline for: {Array.from(selectedLabels).join(', ')}
-            </p>
-          )}
-        </div>
+        <ActiveUsersChart
+          data={usersChartData}
+          refreshIntervalSeconds={refreshIntervalSeconds}
+        />
+        <ResponseTimeChart
+          graphData={graphData}
+          graphMode={graphMode}
+          selectedLabels={selectedLabels}
+          refreshIntervalSeconds={refreshIntervalSeconds}
+          onSelectAll={selectAll}
+          onClearSelection={clearSelection}
+          onGraphSelected={() => void loadGraph(false)}
+          onCumulativeGraph={() => void loadGraph(true)}
+        />
       </div>
 
-      <div className="card">
-        <h2>Errors Over Time</h2>
-        <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '-0.25rem' }}>
-          Cumulative error count · auto-loads on open · refreshes every 10s
-        </p>
-        <div className="toolbar">
-          <button className="btn" onClick={() => loadErrorsGraph(true, false)}>
-            Cumulative Errors
-          </button>
-          <button
-            className="btn"
-            onClick={() => loadErrorsGraph(false, false)}
-            disabled={selectedLabels.size === 0}
-          >
-            Graph Selected ({selectedLabels.size})
-          </button>
-        </div>
-        <div className="chart-wrap">
-          {hasErrorsGraphPoints ? (
-            <ResponsiveContainer>
-              <LineChart>
-                <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
-                <XAxis
-                  dataKey="t"
-                  type="number"
-                  stroke={chartTheme.axis}
-                  tickFormatter={(t) => errorsTimeline.formatValue(Number(t))}
-                  label={{ value: errorsTimeline.axisLabel, position: 'insideBottom', offset: -5 }}
-                />
-                <YAxis stroke={chartTheme.axis} allowDecimals={false} />
-                <Tooltip
-                  contentStyle={{ background: chartTheme.tooltipBg, border: `1px solid ${chartTheme.tooltipBorder}` }}
-                  labelFormatter={(label) => errorsTimeline.formatWithUnit(Number(label))}
-                />
-                <Legend />
-                {errorsGraphData.map((s, i) => (
-                  <Line
-                    key={s.label}
-                    data={s.points}
-                    type="monotone"
-                    dataKey="errors"
-                    name={s.label}
-                    stroke={chartTheme.errorSeries[i % chartTheme.errorSeries.length]}
-                    dot={false}
-                    isAnimationActive={false}
-                  />
-                ))}
-              </LineChart>
-            </ResponsiveContainer>
-          ) : (
-            <p className="empty">
-              {(metrics?.total_errors ?? 0) > 0
-                ? 'Loading error graph…'
-                : 'No errors recorded yet'}
-            </p>
-          )}
-        </div>
-        {errorsGraphMode === 'individual' && selectedLabels.size > 0 && (
-          <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '0.5rem' }}>
-            Showing cumulative errors for: {Array.from(selectedLabels).join(', ')}
-          </p>
-        )}
-      </div>
+      <ErrorsOverTimeChart
+        errorsGraphData={errorsGraphData}
+        errorsGraphMode={errorsGraphMode}
+        selectedLabels={selectedLabels}
+        totalErrors={metrics?.total_errors ?? 0}
+        refreshIntervalSeconds={refreshIntervalSeconds}
+        onCumulativeErrors={() => void loadErrorsGraph(true)}
+        onGraphSelectedErrors={() => void loadErrorsGraph(false)}
+      />
 
       <div className="card">
         <h2>Aggregate Report (live)</h2>
@@ -610,8 +454,19 @@ export default function LiveDashboard() {
         )}
         <div className="error-panel">
           {displayedErrors.length ? displayedErrors.map((e, i) => (
-            <div key={`${e.timestamp}-${e.label}-${i}`} className="error-item">
-              <strong>{e.label}</strong> [{e.response_code}] {e.response_message}
+            <div key={`${e.sample_index}-${e.timestamp}-${i}`} className="error-item">
+              <div className="error-item-header">
+                <div>
+                  <strong>{e.label}</strong> [{e.response_code}] {e.response_message}
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-secondary error-view-btn"
+                  onClick={() => setViewingError(e)}
+                >
+                  View
+                </button>
+              </div>
               {e.failure_message && <div>{e.failure_message}</div>}
               {e.url && <div style={{ color: 'var(--muted)' }}>{e.url}</div>}
               <div style={{ color: 'var(--muted)' }}>{e.thread_name}</div>
@@ -635,14 +490,26 @@ export default function LiveDashboard() {
         ) : null}
       </div>
 
+      {viewingError && (
+        <ErrorDetailModal
+          runId={id}
+          error={viewingError}
+          onClose={() => setViewingError(null)}
+        />
+      )}
+
       <JmeterLogConsole
         runId={id}
         isRunning={metrics?.status === 'running' || run?.status === 'running'}
+        refreshIntervalMs={refreshPollMs}
+        refreshGeneration={refreshGeneration}
       />
 
       <HostResourceChart
         runId={id}
         isRunning={metrics?.status === 'running' || run?.status === 'running'}
+        refreshIntervalMs={refreshPollMs}
+        refreshGeneration={refreshGeneration}
       />
 
       {run?.run_dir && (

@@ -16,11 +16,11 @@ from app.database import SessionLocal
 from app.models import Application, Build, Release, Scenario, TestRun, TestRunStatus
 from app.services.jtl_parser import MetricsAggregator
 from app.services.host_resources import (
-    SAMPLE_INTERVAL_SECONDS,
     append_host_sample,
     load_host_resources,
     save_host_resources,
 )
+from app.services.system_config import get_system_config
 from app.services.process_utils import (
     ensure_jmeter_stopped,
     is_process_alive,
@@ -125,6 +125,10 @@ class RunManager:
             "-j", str(log_file),
             "-Jjmeter.save.saveservice.output_format=csv",
             "-Jjmeter.save.saveservice.autoflush=true",
+            "-Jjmeter.save.saveservice.response_data=true",
+            "-Jjmeter.save.saveservice.response_data.on_error=true",
+            "-Jjmeter.save.saveservice.responseHeaders=true",
+            "-Jjmeter.save.saveservice.requestHeaders=true",
             f"-JRUN_DIR={run_path}",
             f"-JRUN_ID={test_run.id}",
             f"-JJTL_PATH={jtl}",
@@ -170,19 +174,26 @@ class RunManager:
         existing = load_host_resources(run_path)
         if isinstance(existing.get("samples"), list):
             samples = list(existing["samples"])
+        interval = existing.get("interval_seconds")
+        if not isinstance(interval, int) or interval <= 0:
+            db = SessionLocal()
+            try:
+                interval = get_system_config(db).resource_sample_interval_seconds
+            finally:
+                db.close()
 
         loop = asyncio.get_event_loop()
         try:
             while self._is_run_active(run_id, proc):
                 await loop.run_in_executor(
-                    None, append_host_sample, run_path, started_at, samples
+                    None, append_host_sample, run_path, started_at, samples, interval
                 )
-                await asyncio.sleep(SAMPLE_INTERVAL_SECONDS)
+                await asyncio.sleep(interval)
         except asyncio.CancelledError:
             pass
         finally:
             if samples:
-                save_host_resources(run_path, samples)
+                save_host_resources(run_path, samples, interval)
 
     async def _tail_and_monitor(
         self,

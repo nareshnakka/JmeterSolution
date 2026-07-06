@@ -17,6 +17,7 @@ from app.schemas import (
     CompareRequest,
     CompareRunSummary,
     ErrorSample,
+    ErrorDetailOut,
     HostResourcesOut,
     TestRunCreate,
     TestRunDeleteFailure,
@@ -31,6 +32,7 @@ from app.schemas import (
 )
 from app.services.jmeter_runner import run_manager
 from app.services.host_resources import load_host_resources
+from app.services.system_config import get_system_config
 from app.services.jtl_parser import parse_jtl_file
 from app.services.run_queue import try_start_or_queue
 from app.services.scheduler import schedule_test_run, unschedule_test_run
@@ -275,7 +277,11 @@ def get_run_resources(run_id: int, db: Session = Depends(get_db)):
     if not run:
         raise HTTPException(404, "Test run not found")
     if not run.run_dir:
-        return HostResourcesOut(interval_seconds=20, samples=[])
+        cfg = get_system_config(db)
+        return HostResourcesOut(
+            interval_seconds=cfg.resource_sample_interval_seconds,
+            samples=[],
+        )
     data = load_host_resources(Path(run.run_dir))
     return HostResourcesOut.model_validate(data)
 
@@ -286,6 +292,20 @@ def get_run_metrics(run_id: int, db: Session = Depends(get_db)):
     if not run:
         raise HTTPException(404, "Test run not found")
     return _metrics_snapshot_for_run(run)
+
+
+@router.get("/{run_id}/errors/{sample_index}", response_model=ErrorDetailOut)
+def get_run_error_detail(run_id: int, sample_index: int, db: Session = Depends(get_db)):
+    run = db.get(TestRun, run_id)
+    if not run:
+        raise HTTPException(404, "Test run not found")
+    agg = _aggregator_for_run(run)
+    if not agg:
+        raise HTTPException(404, "No error data available")
+    detail = agg.get_error_detail(sample_index)
+    if not detail:
+        raise HTTPException(404, "Error sample not found")
+    return detail
 
 
 @router.get("/{run_id}/errors", response_model=list[ErrorSample])

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import {
   LineChart,
   Line,
@@ -11,18 +11,28 @@ import {
 } from 'recharts'
 import { api } from '../api'
 import type { HostResources } from '../types'
+import { downsamplePoints } from '../utils/chartDownsample'
 import { maxTimeFromPoints, timelineScaleForSeconds } from '../utils/timeline'
 import { chartTheme } from '../utils/chartTheme'
 
-const RESOURCE_POLL_MS = 20_000
+const DEFAULT_RESOURCE_POLL_MS = 10_000
 
 interface HostResourceChartProps {
   runId: number
   isRunning: boolean
+  refreshIntervalMs?: number
+  refreshGeneration?: number
 }
 
-export default function HostResourceChart({ runId, isRunning }: HostResourceChartProps) {
+function HostResourceChart({
+  runId,
+  isRunning,
+  refreshIntervalMs,
+  refreshGeneration,
+}: HostResourceChartProps) {
   const [resources, setResources] = useState<HostResources | null>(null)
+
+  const pollMs = refreshIntervalMs ?? DEFAULT_RESOURCE_POLL_MS
 
   const loadResources = useCallback(async () => {
     try {
@@ -35,17 +45,28 @@ export default function HostResourceChart({ runId, isRunning }: HostResourceChar
 
   useEffect(() => {
     void loadResources()
-    const interval = setInterval(() => void loadResources(), RESOURCE_POLL_MS)
+  }, [loadResources])
+
+  useEffect(() => {
+    if (refreshGeneration !== undefined) return
+    const interval = setInterval(() => void loadResources(), pollMs)
     return () => clearInterval(interval)
-  }, [loadResources, isRunning])
+  }, [loadResources, pollMs, refreshGeneration])
+
+  useEffect(() => {
+    if (refreshGeneration === undefined || refreshGeneration === 0) return
+    void loadResources()
+  }, [refreshGeneration, loadResources])
 
   const chartData = useMemo(
     () =>
-      (resources?.samples ?? []).map((s) => ({
-        t: s.t,
-        cpu_percent: s.cpu_percent,
-        memory_percent: s.memory_percent,
-      })),
+      downsamplePoints(
+        (resources?.samples ?? []).map((s) => ({
+          t: s.t,
+          cpu_percent: s.cpu_percent,
+          memory_percent: s.memory_percent,
+        }))
+      ),
     [resources]
   )
 
@@ -60,7 +81,7 @@ export default function HostResourceChart({ runId, isRunning }: HostResourceChar
     <div className="card">
       <h2>Host System Resources</h2>
       <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '-0.25rem' }}>
-        CPU and memory sampled every {resources?.interval_seconds ?? 20}s on the test server
+        CPU and memory sampled every {resources?.interval_seconds ?? 10}s on the test server
         {isRunning ? ' · updates live' : ' · recorded during run'}
       </p>
 
@@ -137,3 +158,5 @@ export default function HostResourceChart({ runId, isRunning }: HostResourceChar
     </div>
   )
 }
+
+export default memo(HostResourceChart)

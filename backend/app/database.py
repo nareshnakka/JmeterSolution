@@ -41,6 +41,25 @@ def _migrate_schema() -> None:
                 for stmt in alters:
                     conn.execute(text(stmt))
 
+    if "system_config" in insp.get_table_names():
+        cfg_cols = {c["name"] for c in insp.get_columns("system_config")}
+        if "resource_sample_interval_seconds" not in cfg_cols:
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "ALTER TABLE system_config "
+                        "ADD COLUMN resource_sample_interval_seconds INTEGER NOT NULL DEFAULT 10"
+                    )
+                )
+        if "live_dashboard_refresh_interval_seconds" not in cfg_cols:
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "ALTER TABLE system_config "
+                        "ADD COLUMN live_dashboard_refresh_interval_seconds INTEGER NOT NULL DEFAULT 10"
+                    )
+                )
+
 
 def init_db():
     from app import models  # noqa: F401

@@ -31,6 +31,8 @@ def _to_config_out(cfg) -> SystemConfigOut:
         data_root=cfg.data_root,
         archive_retention_months=cfg.archive_retention_months,
         auto_archive_enabled=cfg.auto_archive_enabled,
+        resource_sample_interval_seconds=cfg.resource_sample_interval_seconds,
+        live_dashboard_refresh_interval_seconds=cfg.live_dashboard_refresh_interval_seconds,
         jmeter_found=(jmeter_path / "bin" / "jmeter.bat").is_file(),
         updated_at=cfg.updated_at,
     )
@@ -51,6 +53,8 @@ def save_config(body: SystemConfigUpdate, db: Session = Depends(get_db)):
             data_root=body.data_root,
             archive_retention_months=body.archive_retention_months,
             auto_archive_enabled=body.auto_archive_enabled,
+            resource_sample_interval_seconds=body.resource_sample_interval_seconds,
+            live_dashboard_refresh_interval_seconds=body.live_dashboard_refresh_interval_seconds,
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc

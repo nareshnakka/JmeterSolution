@@ -139,6 +139,8 @@ export const api = {
     params.set('limit', String(limit))
     return request<import('./types').ErrorSample[]>(`/test-runs/${runId}/errors?${params}`)
   },
+  getRunErrorDetail: (runId: number, sampleIndex: number) =>
+    request<import('./types').ErrorDetail>(`/test-runs/${runId}/errors/${sampleIndex}`),
   getLogs: (runId: number, offset = 0) =>
     request<import('./types').TestRunLogs>(`/test-runs/${runId}/logs?offset=${offset}`),
   getGraph: (runId: number, labels: string[], cumulative = false) => {
@@ -171,6 +173,8 @@ export const api = {
     data_root: string
     archive_retention_months: number
     auto_archive_enabled: boolean
+    resource_sample_interval_seconds: number
+    live_dashboard_refresh_interval_seconds: number
   }) =>
     request<import('./types').SystemConfig>('/config', {
       method: 'PUT',

@@ -148,6 +148,7 @@ export interface TransactionMetric {
 }
 
 export interface ErrorSample {
+  sample_index: number
   timestamp: number
   label: string
   response_code: string
@@ -155,6 +156,22 @@ export interface ErrorSample {
   failure_message: string
   thread_name: string
   url?: string
+  elapsed_ms?: number
+}
+
+export interface ErrorDetail {
+  sample_index: number
+  timestamp: number
+  label: string
+  response_code: string
+  response_message: string
+  failure_message: string
+  thread_name: string
+  url?: string
+  elapsed_ms: number
+  response_body?: string | null
+  response_headers?: string | null
+  request_headers?: string | null
 }
 
 export interface LiveMetrics {
@@ -192,6 +209,8 @@ export interface SystemConfig {
   data_root: string
   archive_retention_months: number
   auto_archive_enabled: boolean
+  resource_sample_interval_seconds: number
+  live_dashboard_refresh_interval_seconds: number
   jmeter_found: boolean
   updated_at?: string
 }

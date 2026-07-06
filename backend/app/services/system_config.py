@@ -9,6 +9,25 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.models import SystemConfig
 
+DEFAULT_RESOURCE_SAMPLE_INTERVAL_SECONDS = 10
+MIN_RESOURCE_SAMPLE_INTERVAL_SECONDS = 5
+MAX_RESOURCE_SAMPLE_INTERVAL_SECONDS = 300
+
+DEFAULT_LIVE_DASHBOARD_REFRESH_INTERVAL_SECONDS = 10
+MIN_LIVE_DASHBOARD_REFRESH_INTERVAL_SECONDS = 5
+MAX_LIVE_DASHBOARD_REFRESH_INTERVAL_SECONDS = 300
+
+
+def normalize_resource_sample_interval(seconds: int) -> int:
+    return max(MIN_RESOURCE_SAMPLE_INTERVAL_SECONDS, min(MAX_RESOURCE_SAMPLE_INTERVAL_SECONDS, seconds))
+
+
+def normalize_live_dashboard_refresh_interval(seconds: int) -> int:
+    return max(
+        MIN_LIVE_DASHBOARD_REFRESH_INTERVAL_SECONDS,
+        min(MAX_LIVE_DASHBOARD_REFRESH_INTERVAL_SECONDS, seconds),
+    )
+
 
 def apply_runtime_paths(jmeter_home: str, data_root: str) -> None:
     settings.jmeter_home = Path(jmeter_home)
@@ -25,6 +44,8 @@ def get_system_config(db: Session) -> SystemConfig:
             data_root=str(settings.data_root),
             archive_retention_months=3,
             auto_archive_enabled=True,
+            resource_sample_interval_seconds=DEFAULT_RESOURCE_SAMPLE_INTERVAL_SECONDS,
+            live_dashboard_refresh_interval_seconds=DEFAULT_LIVE_DASHBOARD_REFRESH_INTERVAL_SECONDS,
         )
         db.add(cfg)
         db.commit()
@@ -40,6 +61,8 @@ def update_system_config(
     data_root: str,
     archive_retention_months: int,
     auto_archive_enabled: bool,
+    resource_sample_interval_seconds: int,
+    live_dashboard_refresh_interval_seconds: int,
 ) -> SystemConfig:
     jmeter_path = Path(jmeter_home)
     data_path = Path(data_root)
@@ -55,6 +78,10 @@ def update_system_config(
     cfg.data_root = str(data_path)
     cfg.archive_retention_months = max(1, min(archive_retention_months, 120))
     cfg.auto_archive_enabled = auto_archive_enabled
+    cfg.resource_sample_interval_seconds = normalize_resource_sample_interval(resource_sample_interval_seconds)
+    cfg.live_dashboard_refresh_interval_seconds = normalize_live_dashboard_refresh_interval(
+        live_dashboard_refresh_interval_seconds
+    )
     db.commit()
     db.refresh(cfg)
     apply_runtime_paths(cfg.jmeter_home, cfg.data_root)

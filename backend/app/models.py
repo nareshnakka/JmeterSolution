@@ -134,6 +134,8 @@ class SystemConfig(Base):
     data_root: Mapped[str] = mapped_column(String(1024), nullable=False)
     archive_retention_months: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
     auto_archive_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    resource_sample_interval_seconds: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
+    live_dashboard_refresh_interval_seconds: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
 

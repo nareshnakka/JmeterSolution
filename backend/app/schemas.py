@@ -216,6 +216,7 @@ class TransactionMetric(BaseModel):
 
 
 class ErrorSample(BaseModel):
+    sample_index: int
     timestamp: int
     label: str
     response_code: str
@@ -223,6 +224,22 @@ class ErrorSample(BaseModel):
     failure_message: str
     thread_name: str
     url: str = ""
+    elapsed_ms: float = 0.0
+
+
+class ErrorDetailOut(BaseModel):
+    sample_index: int
+    timestamp: int
+    label: str
+    response_code: str
+    response_message: str
+    failure_message: str
+    thread_name: str
+    url: str = ""
+    elapsed_ms: float = 0.0
+    response_body: str | None = None
+    response_headers: str | None = None
+    request_headers: str | None = None
 
 
 class LiveMetricsSnapshot(BaseModel):
@@ -286,6 +303,8 @@ class SystemConfigOut(BaseModel):
     data_root: str
     archive_retention_months: int
     auto_archive_enabled: bool
+    resource_sample_interval_seconds: int
+    live_dashboard_refresh_interval_seconds: int
     jmeter_found: bool
     updated_at: datetime | None = None
 
@@ -297,6 +316,8 @@ class SystemConfigUpdate(BaseModel):
     data_root: str
     archive_retention_months: int = Field(default=3, ge=1, le=120)
     auto_archive_enabled: bool = True
+    resource_sample_interval_seconds: int = Field(default=10, ge=5, le=300)
+    live_dashboard_refresh_interval_seconds: int = Field(default=10, ge=5, le=300)
 
 
 class ArchiveRunItem(BaseModel):

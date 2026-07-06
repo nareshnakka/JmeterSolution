@@ -10,7 +10,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.schemas import ErrorSample, LiveMetricsSnapshot, TransactionMetric
+from app.schemas import ErrorDetailOut, ErrorSample, LiveMetricsSnapshot, TransactionMetric
 from app.models import TestRunStatus
 
 
@@ -21,8 +21,29 @@ JTL_HEADER = (
 )
 
 
+def _default_header_map() -> dict[str, int]:
+    return {name: index for index, name in enumerate(JTL_HEADER.split(","))}
+
+
+def _parse_header_map(line: str) -> dict[str, int]:
+    reader = csv.reader(io.StringIO(line.strip()))
+    try:
+        cols = next(reader)
+    except StopIteration:
+        return _default_header_map()
+    return {name.strip(): index for index, name in enumerate(cols)}
+
+
+def _col(row: list[str], header: dict[str, int], name: str, default: str = "") -> str:
+    index = header.get(name)
+    if index is None or index >= len(row):
+        return default
+    return row[index]
+
+
 @dataclass
 class Sample:
+    sample_index: int
     timestamp_ms: int
     elapsed_ms: float
     label: str
@@ -33,6 +54,9 @@ class Sample:
     failure_message: str
     all_threads: int = 0
     url: str = ""
+    response_data: str = ""
+    response_headers: str = ""
+    request_headers: str = ""
 
 
 @dataclass
@@ -51,34 +75,43 @@ class MetricsAggregator:
     status: TestRunStatus = TestRunStatus.RUNNING
     _last_bucket: int = -1
     _last_all_threads: int = 0
+    _header_map: dict[str, int] = field(default_factory=_default_header_map)
 
     def ingest_line(self, line: str) -> None:
         line = line.strip()
-        if not line or line.startswith("timeStamp"):
+        if not line:
             return
-        sample = _parse_jtl_line(line)
+        if line.startswith("timeStamp"):
+            self._header_map = _parse_header_map(line)
+            return
+
+        sample = _parse_jtl_line(line, self._header_map)
         if sample is None:
             return
+
+        sample.sample_index = len(self.samples)
         self.samples.append(sample)
         if len(self.samples) == 1:
             self.start_wall_time = sample.timestamp_ms / 1000.0
         self._last_all_threads = max(self._last_all_threads, sample.all_threads)
         self._update_buckets(sample)
         if not sample.success:
-            self.errors.append(
-                ErrorSample(
-                    timestamp=sample.timestamp_ms,
-                    label=sample.label,
-                    response_code=sample.response_code,
-                    response_message=sample.response_message,
-                    failure_message=sample.failure_message,
-                    thread_name=sample.thread_name,
-                    url=sample.url,
-                )
-            )
-        # Keep error list bounded for live feed
+            self.errors.append(self._sample_to_error(sample))
         if len(self.errors) > 500:
             self.errors = self.errors[-500:]
+
+    def _sample_to_error(self, sample: Sample) -> ErrorSample:
+        return ErrorSample(
+            sample_index=sample.sample_index,
+            timestamp=sample.timestamp_ms,
+            label=sample.label,
+            response_code=sample.response_code,
+            response_message=sample.response_message,
+            failure_message=sample.failure_message,
+            thread_name=sample.thread_name,
+            url=sample.url,
+            elapsed_ms=sample.elapsed_ms,
+        )
 
     def _update_buckets(self, sample: Sample) -> None:
         elapsed = (sample.timestamp_ms / 1000.0) - self.start_wall_time
@@ -95,7 +128,6 @@ class MetricsAggregator:
                 self.active_users_series[-1]["users"], sample.all_threads
             )
 
-        # Per-label rolling avg in bucket
         series = self.label_time_series[sample.label]
         if not series or series[-1].get("bucket") != bucket:
             series.append({"bucket": bucket, "t": round(elapsed, 1), "elapsed": [sample.elapsed_ms]})
@@ -185,7 +217,6 @@ class MetricsAggregator:
             series.append({"label": label, "points": points})
 
         if cumulative and len(series) > 1:
-            # Merge by time bucket — average across labels at each t
             by_t: dict[float, list[float]] = defaultdict(list)
             for s in series:
                 for p in s["points"]:
@@ -200,22 +231,12 @@ class MetricsAggregator:
         labels: list[str] | None = None,
         cumulative: bool = False,
     ) -> dict[str, Any]:
-        """Return cumulative error count over time for all or selected labels."""
-
-        def _cumulative_points(buckets: list[dict[str, Any]]) -> list[dict[str, Any]]:
-            by_bucket: dict[int, dict[str, Any]] = {}
-            for bucket in buckets:
-                num = bucket["bucket"]
-                if num not in by_bucket:
-                    by_bucket[num] = {"bucket": num, "t": bucket["t"], "errors": 0}
-                by_bucket[num]["errors"] += bucket["errors"]
-                by_bucket[num]["t"] = max(by_bucket[num]["t"], bucket["t"])
-
-            running = 0
-            points = []
-            for num in sorted(by_bucket.keys()):
-                running += by_bucket[num]["errors"]
-                points.append({"t": by_bucket[num]["t"], "errors": running})
+        def _cumulative_points(raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
+            total = 0
+            points: list[dict[str, Any]] = []
+            for entry in raw:
+                total += entry.get("errors", 0)
+                points.append({"t": entry["t"], "errors": total})
             return points
 
         if labels is None or "ALL" in labels:
@@ -238,18 +259,7 @@ class MetricsAggregator:
     def search_errors(self, query: str | None = None, limit: int = 200) -> list[ErrorSample]:
         """Search all failed samples (full JTL), most recent first."""
         failed = [s for s in self.samples if not s.success]
-        errors = [
-            ErrorSample(
-                timestamp=s.timestamp_ms,
-                label=s.label,
-                response_code=s.response_code,
-                response_message=s.response_message,
-                failure_message=s.failure_message,
-                thread_name=s.thread_name,
-                url=s.url,
-            )
-            for s in reversed(failed)
-        ]
+        errors = [self._sample_to_error(s) for s in reversed(failed)]
         if not query or not query.strip():
             return errors[:limit]
 
@@ -270,24 +280,51 @@ class MetricsAggregator:
 
         return [e for e in errors if _matches(e)][:limit]
 
+    def get_error_detail(self, sample_index: int) -> ErrorDetailOut | None:
+        if sample_index < 0 or sample_index >= len(self.samples):
+            return None
+        sample = self.samples[sample_index]
+        if sample.success:
+            return None
+        body = sample.response_data.strip() if sample.response_data else None
+        return ErrorDetailOut(
+            sample_index=sample.sample_index,
+            timestamp=sample.timestamp_ms,
+            label=sample.label,
+            response_code=sample.response_code,
+            response_message=sample.response_message,
+            failure_message=sample.failure_message,
+            thread_name=sample.thread_name,
+            url=sample.url,
+            elapsed_ms=sample.elapsed_ms,
+            response_body=body or None,
+            response_headers=sample.response_headers.strip() or None,
+            request_headers=sample.request_headers.strip() or None,
+        )
 
-def _parse_jtl_line(line: str) -> Sample | None:
+
+def _parse_jtl_line(line: str, header: dict[str, int]) -> Sample | None:
     try:
         reader = csv.reader(io.StringIO(line))
         row = next(reader)
-        if len(row) < 13:
+        if len(row) < 8:
             return None
+        all_threads_raw = _col(row, header, "allThreads", "0")
         return Sample(
-            timestamp_ms=int(row[0]),
-            elapsed_ms=float(row[1]),
-            label=row[2],
-            response_code=row[3],
-            response_message=row[4],
-            thread_name=row[5],
-            success=row[7].lower() == "true",
-            failure_message=row[8] if len(row) > 8 else "",
-            all_threads=int(row[12]) if len(row) > 12 and row[12].isdigit() else 0,
-            url=row[13] if len(row) > 13 else "",
+            sample_index=0,
+            timestamp_ms=int(_col(row, header, "timeStamp", "0")),
+            elapsed_ms=float(_col(row, header, "elapsed", "0") or 0),
+            label=_col(row, header, "label"),
+            response_code=_col(row, header, "responseCode"),
+            response_message=_col(row, header, "responseMessage"),
+            thread_name=_col(row, header, "threadName"),
+            success=_col(row, header, "success", "false").lower() == "true",
+            failure_message=_col(row, header, "failureMessage"),
+            all_threads=int(all_threads_raw) if all_threads_raw.isdigit() else 0,
+            url=_col(row, header, "URL"),
+            response_data=_col(row, header, "responseData"),
+            response_headers=_col(row, header, "responseHeaders"),
+            request_headers=_col(row, header, "requestHeaders"),
         )
     except (ValueError, StopIteration):
         return None

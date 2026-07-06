@@ -17,6 +17,8 @@ export default function ConfigPage() {
     data_root: '',
     archive_retention_months: 3,
     auto_archive_enabled: true,
+    resource_sample_interval_seconds: 10,
+    live_dashboard_refresh_interval_seconds: 10,
   })
   const [saving, setSaving] = useState(false)
   const [runs, setRuns] = useState<ArchiveRunItem[]>([])
@@ -33,6 +35,8 @@ export default function ConfigPage() {
       data_root: data.data_root,
       archive_retention_months: data.archive_retention_months,
       auto_archive_enabled: data.auto_archive_enabled,
+      resource_sample_interval_seconds: data.resource_sample_interval_seconds,
+      live_dashboard_refresh_interval_seconds: data.live_dashboard_refresh_interval_seconds,
     })
   }, [])
 
@@ -203,6 +207,46 @@ export default function ConfigPage() {
                 />
                 Enable automatic archiving (daily at 2:00 AM)
               </label>
+            </div>
+            <div className="form-row">
+              <label htmlFor="resource_interval">Host CPU/Memory Sample Interval (seconds)</label>
+              <input
+                id="resource_interval"
+                type="number"
+                min={5}
+                max={300}
+                value={form.resource_sample_interval_seconds}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    resource_sample_interval_seconds: Number(e.target.value) || 10,
+                  })
+                }
+              />
+              <span className="config-hint">
+                Default: 10 seconds. Applies to new test runs (5–300 seconds).
+              </span>
+            </div>
+            <div className="form-row">
+              <label htmlFor="dashboard_refresh_interval">
+                Graphs Refresh Interval for Live Dashboard (seconds)
+              </label>
+              <input
+                id="dashboard_refresh_interval"
+                type="number"
+                min={5}
+                max={300}
+                value={form.live_dashboard_refresh_interval_seconds}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    live_dashboard_refresh_interval_seconds: Number(e.target.value) || 10,
+                  })
+                }
+              />
+              <span className="config-hint">
+                Default: 10 seconds. How often metrics and graphs refresh on the Live Dashboard (5–300 seconds).
+              </span>
             </div>
           </div>
           <div className="toolbar" style={{ marginTop: '0.75rem' }}>
