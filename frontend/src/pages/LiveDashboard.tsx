@@ -41,6 +41,7 @@ export default function LiveDashboard() {
 
   const refreshPollMs = refreshIntervalSeconds * 1000
   const refreshInFlightRef = useRef(false)
+  const pendingRefreshRef = useRef(false)
   const graphIsActiveRef = useRef(true)
   const errorsGraphIsActiveRef = useRef(false)
   const errorSearchRef = useRef('')
@@ -94,6 +95,30 @@ export default function LiveDashboard() {
     })
   }, [])
 
+  const isTerminalStatus = useCallback((status?: string) => {
+    return status === 'completed' || status === 'failed' || status === 'cancelled'
+  }, [])
+
+  const syncRunRecord = useCallback(async () => {
+    try {
+      const updated = await api.getTestRun(id)
+      setRun(updated)
+      return updated
+    } catch {
+      return null
+    }
+  }, [id])
+
+  const handleTerminalStatus = useCallback(
+    (status: string) => {
+      setStopping(false)
+      setMetrics((prev) => (prev ? { ...prev, status } : prev))
+      setRun((prev) => (prev ? { ...prev, status } : prev))
+      void syncRunRecord()
+    },
+    [syncRunRecord]
+  )
+
   const effectiveErrorSearch = useMemo(
     () => (errorFilter.trim() || labelFilter.trim()),
     [errorFilter, labelFilter]
@@ -143,14 +168,17 @@ export default function LiveDashboard() {
   }, [errorsGraphIsActive])
 
   const refreshDashboard = useCallback(async (options?: { showErrorsLoading?: boolean }) => {
-    if (refreshInFlightRef.current) return
+    if (refreshInFlightRef.current) {
+      pendingRefreshRef.current = true
+      return
+    }
     refreshInFlightRef.current = true
     try {
       try {
         const m = await api.getMetrics(id)
         applyMetrics(m)
-        if (m.status === 'completed' || m.status === 'failed' || m.status === 'cancelled') {
-          setStopping(false)
+        if (isTerminalStatus(m.status)) {
+          handleTerminalStatus(m.status)
         }
       } catch {
         /* JTL may not exist yet at test start */
@@ -198,8 +226,18 @@ export default function LiveDashboard() {
       setRefreshGeneration((g) => g + 1)
     } finally {
       refreshInFlightRef.current = false
+      if (pendingRefreshRef.current) {
+        pendingRefreshRef.current = false
+        void refreshDashboard(options)
+      }
     }
-  }, [id, applyMetrics, graphMode, errorsGraphMode, selectedLabels])
+  }, [id, applyMetrics, graphMode, errorsGraphMode, selectedLabels, handleTerminalStatus, isTerminalStatus])
+
+  const liveStatus = metrics?.status || run?.status
+  const pollIntervalMs = useMemo(() => {
+    if (isTerminalStatus(liveStatus)) return refreshPollMs
+    return Math.min(refreshPollMs, 4000)
+  }, [liveStatus, refreshPollMs, isTerminalStatus])
 
   useEffect(() => {
     let cancelled = false
@@ -210,12 +248,12 @@ export default function LiveDashboard() {
     }
 
     void tick(true)
-    const interval = setInterval(() => void tick(false), refreshPollMs)
+    const interval = setInterval(() => void tick(false), pollIntervalMs)
     return () => {
       cancelled = true
       clearInterval(interval)
     }
-  }, [refreshPollMs, refreshDashboard])
+  }, [pollIntervalMs, refreshDashboard])
 
   useEffect(() => {
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
@@ -223,14 +261,26 @@ export default function LiveDashboard() {
 
     ws.onmessage = (ev) => {
       const msg = JSON.parse(ev.data)
+      if (msg.type === 'metrics' && msg.data) {
+        applyMetrics(msg.data as LiveMetrics)
+        if (isTerminalStatus(msg.data.status)) {
+          handleTerminalStatus(msg.data.status)
+          void refreshDashboard()
+        }
+      }
       if (msg.type === 'finished') {
-        setStopping(false)
+        const status = msg.data?.status as string | undefined
+        if (status) {
+          handleTerminalStatus(status)
+        } else {
+          setStopping(false)
+        }
         void refreshDashboard()
       }
     }
 
     return () => ws.close()
-  }, [id, refreshDashboard])
+  }, [id, applyMetrics, refreshDashboard, handleTerminalStatus, isTerminalStatus])
 
   useEffect(() => {
     if (graphMode === 'cumulative') {
