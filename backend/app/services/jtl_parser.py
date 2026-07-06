@@ -141,15 +141,19 @@ class MetricsAggregator:
             self._append_error_bucket(err_label, bucket, elapsed)
             self._append_error_bucket(self.all_error_series, bucket, elapsed)
 
+    def _bucket_time(self, bucket: int) -> float:
+        return round(bucket * self.bucket_seconds, 1)
+
     def _append_error_bucket(
         self, series: list[dict[str, Any]], bucket: int, elapsed: float
     ) -> None:
+        del elapsed  # bucket start time is used for stable chart ordering
         for entry in series:
             if entry.get("bucket") == bucket:
                 entry["errors"] += 1
-                entry["t"] = round(elapsed, 1)
                 return
-        series.append({"bucket": bucket, "t": round(elapsed, 1), "errors": 1})
+        series.append({"bucket": bucket, "t": self._bucket_time(bucket), "errors": 1})
+        series.sort(key=lambda e: e.get("bucket", 0))
 
     def transaction_metrics(self, label_filter: str | None = None) -> list[TransactionMetric]:
         grouped: dict[str, list[Sample]] = defaultdict(list)
@@ -236,7 +240,17 @@ class MetricsAggregator:
         """Return per-interval error counts (not cumulative). cumulative param is ignored."""
 
         def _interval_points(raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
-            return [{"t": entry["t"], "errors": entry.get("errors", 0)} for entry in raw]
+            if not raw:
+                return []
+            by_bucket: dict[int, int] = {}
+            for entry in raw:
+                bucket = int(entry.get("bucket", 0))
+                by_bucket[bucket] = by_bucket.get(bucket, 0) + int(entry.get("errors", 0))
+            max_bucket = max(by_bucket)
+            return [
+                {"t": self._bucket_time(b), "errors": by_bucket.get(b, 0)}
+                for b in range(max_bucket + 1)
+            ]
 
         if labels is None or "ALL" in labels:
             return {

@@ -6,13 +6,14 @@ export function downsamplePoints<T extends { t: number }>(
   points: T[],
   maxPoints = DEFAULT_MAX_POINTS
 ): T[] {
-  if (points.length <= maxPoints) return points
-  const step = Math.ceil(points.length / maxPoints)
+  const sorted = [...points].sort((a, b) => a.t - b.t)
+  if (sorted.length <= maxPoints) return sorted
+  const step = Math.ceil(sorted.length / maxPoints)
   const result: T[] = []
-  for (let i = 0; i < points.length; i += step) {
-    result.push(points[i])
+  for (let i = 0; i < sorted.length; i += step) {
+    result.push(sorted[i])
   }
-  const last = points[points.length - 1]
+  const last = sorted[sorted.length - 1]
   if (result[result.length - 1]?.t !== last.t) {
     result.push(last)
   }
