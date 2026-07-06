@@ -1,4 +1,4 @@
-"""Archive and restore test run result folders."""
+"""Archive and restore test run result folders as zip files to save disk space."""
 
 from __future__ import annotations
 
@@ -9,6 +9,15 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 
 from app.models import Application, Build, Release, Scenario, SystemConfig, TestRun, TestRunStatus
+from app.services.run_artifacts import (
+    archive_zip_path,
+    clear_extract_cache,
+    extract_zip,
+    is_zip_archive,
+    remove_run_artifacts,
+    update_run_paths_for_directory,
+    zip_directory,
+)
 from app.services.storage import test_run_dir
 from app.services.system_config import archive_root, get_system_config
 
@@ -42,8 +51,30 @@ def _resolve_hierarchy(db: Session, run: TestRun) -> tuple[Release, Build, Appli
     return release, build, app
 
 
+def _compress_run_folder(src: Path, run_id: int) -> Path:
+    zip_path = archive_zip_path(run_id)
+    zip_path.parent.mkdir(parents=True, exist_ok=True)
+    zip_directory(src, zip_path)
+    shutil.rmtree(src)
+    return zip_path
+
+
+def _upgrade_legacy_archive(run: TestRun) -> None:
+    """Convert an older folder-based archive to a zip file."""
+    root = Path(run.run_dir) if run.run_dir else None
+    if root is None or is_zip_archive(root):
+        return
+    if not root.is_dir():
+        return
+    zip_path = _compress_run_folder(root, run.id)
+    run.run_dir = str(zip_path)
+    run.jtl_path = None
+    run.log_path = None
+
+
 def archive_test_run(db: Session, run: TestRun) -> None:
     if run.is_archived:
+        _upgrade_legacy_archive(run)
         return
     if run.status in _ACTIVE:
         raise ValueError(f"Run #{run.id} is active and cannot be archived")
@@ -54,17 +85,23 @@ def archive_test_run(db: Session, run: TestRun) -> None:
         run.archived_at = datetime.utcnow()
         return
 
-    dest = archive_root() / str(run.id)
-    if dest.exists():
-        shutil.rmtree(dest)
-    dest.parent.mkdir(parents=True, exist_ok=True)
+    if is_zip_archive(src):
+        run.is_archived = True
+        run.archived_at = datetime.utcnow()
+        return
 
     run.pre_archive_run_dir = str(src)
-    shutil.move(str(src), str(dest))
+    archive_root().mkdir(parents=True, exist_ok=True)
 
-    run.run_dir = str(dest)
-    run.jtl_path = str(dest / "results.jtl") if (dest / "results.jtl").exists() else run.jtl_path
-    run.log_path = str(dest / "jmeter.log") if (dest / "jmeter.log").exists() else run.log_path
+    if src.is_dir():
+        zip_path = _compress_run_folder(src, run.id)
+    else:
+        raise ValueError(f"Run #{run.id} artifacts are not a directory: {src}")
+
+    clear_extract_cache(run.id)
+    run.run_dir = str(zip_path)
+    run.jtl_path = None
+    run.log_path = None
     run.is_archived = True
     run.archived_at = datetime.utcnow()
 
@@ -84,17 +121,23 @@ def restore_test_run(db: Session, run: TestRun) -> None:
     if src is None or not src.exists():
         run.is_archived = False
         run.archived_at = None
-        run.run_dir = str(target)
+        run.pre_archive_run_dir = None
+        update_run_paths_for_directory(run, target)
         return
 
     if target.exists():
         shutil.rmtree(target)
 
-    shutil.move(str(src), str(target))
+    if is_zip_archive(src):
+        extract_zip(src, target)
+        src.unlink(missing_ok=True)
+        clear_extract_cache(run.id)
+    elif src.is_dir():
+        shutil.move(str(src), str(target))
+    else:
+        raise ValueError(f"Run #{run.id} archive format is not supported: {src}")
 
-    run.run_dir = str(target)
-    run.jtl_path = str(target / "results.jtl") if (target / "results.jtl").exists() else None
-    run.log_path = str(target / "jmeter.log") if (target / "jmeter.log").exists() else None
+    update_run_paths_for_directory(run, target)
     run.is_archived = False
     run.archived_at = None
     run.pre_archive_run_dir = None

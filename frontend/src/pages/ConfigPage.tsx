@@ -260,8 +260,9 @@ export default function ConfigPage() {
       <div className="card">
         <h2>Results Archive</h2>
         <p style={{ fontSize: '0.8125rem', color: 'var(--muted)', marginBottom: '0.75rem' }}>
-          Archive moves result folders to <code>data\_archive\runs</code>. Archived runs are hidden from Test Runs
-          but can be restored here. Compare and dashboard still work on archived runs.
+          Archive zips result folders to <code>data\_archive\runs\{'{run_id}'}.zip</code> to save disk space.
+          Restore extracts them back to the original location. Archived runs are hidden from Test Runs
+          but compare and dashboard still work (zip is read on demand).
         </p>
         <div className="toolbar">
           <select

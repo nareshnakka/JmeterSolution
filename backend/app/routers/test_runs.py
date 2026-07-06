@@ -2,7 +2,6 @@
 
 import os
 import json
-import shutil
 from datetime import datetime
 from pathlib import Path
 
@@ -39,7 +38,13 @@ from app.services.jtl_parser import (
     parse_jtl_file,
     search_errors_from_jtl,
 )
-from app.services.run_queue import try_start_or_queue
+from app.services.run_artifacts import (
+    ensure_run_directory,
+    remove_run_artifacts,
+    resolve_jtl_path,
+    resolve_log_path,
+    resolve_run_file,
+)
 from app.services.scheduler import schedule_test_run, unschedule_test_run
 from app.services.scenario_schedule import parse_days_of_week
 from app.utils.datetime_utils import utc_now
@@ -274,10 +279,7 @@ def _delete_test_run_record(run: TestRun, db: Session) -> None:
 
     run_manager.cleanup_run(run.id)
 
-    if run.run_dir:
-        run_path = Path(run.run_dir)
-        if run_path.exists():
-            shutil.rmtree(run_path, ignore_errors=True)
+    remove_run_artifacts(run)
 
     db.delete(run)
 
@@ -340,19 +342,20 @@ def _metrics_snapshot_for_run(run: TestRun) -> dict:
 def _aggregator_for_run(run: TestRun):
     """Resolve the best metrics aggregator for a test run."""
     agg = run_manager.get_aggregator(run.id)
+    jtl = resolve_jtl_path(run)
 
     if run.status == TestRunStatus.RUNNING:
         if agg is not None and agg.samples:
             return agg
-        if run.jtl_path and Path(run.jtl_path).exists():
-            file_agg = parse_jtl_file(run.jtl_path)
+        if jtl:
+            file_agg = parse_jtl_file(jtl)
             file_agg.test_run_id = run.id
             return file_agg
         return agg
 
     file_agg = None
-    if run.jtl_path and Path(run.jtl_path).exists():
-        file_agg = parse_jtl_file(run.jtl_path)
+    if jtl:
+        file_agg = parse_jtl_file(jtl)
         file_agg.test_run_id = run.id
     if file_agg and (agg is None or len(file_agg.samples) >= len(agg.samples)):
         return file_agg
@@ -364,13 +367,14 @@ def get_run_resources(run_id: int, db: Session = Depends(get_db)):
     run = db.get(TestRun, run_id)
     if not run:
         raise HTTPException(404, "Test run not found")
-    if not run.run_dir:
+    run_dir = ensure_run_directory(run)
+    if not run_dir:
         cfg = get_system_config(db)
         return HostResourcesOut(
             interval_seconds=cfg.resource_sample_interval_seconds,
             samples=[],
         )
-    data = load_host_resources(Path(run.run_dir))
+    data = load_host_resources(run_dir)
     return HostResourcesOut.model_validate(data)
 
 
@@ -387,8 +391,9 @@ def get_run_error_detail(run_id: int, sample_index: int, db: Session = Depends(g
     run = db.get(TestRun, run_id)
     if not run:
         raise HTTPException(404, "Test run not found")
-    if run.jtl_path and Path(run.jtl_path).is_file():
-        detail = get_error_detail_from_jtl(run.jtl_path, sample_index)
+    jtl = resolve_jtl_path(run)
+    if jtl:
+        detail = get_error_detail_from_jtl(jtl, sample_index)
         if detail:
             return detail
     agg = _aggregator_for_run(run)
@@ -410,8 +415,9 @@ def get_run_errors(
     run = db.get(TestRun, run_id)
     if not run:
         raise HTTPException(404, "Test run not found")
-    if run.jtl_path and Path(run.jtl_path).is_file():
-        return search_errors_from_jtl(run.jtl_path, search, limit)
+    jtl = resolve_jtl_path(run)
+    if jtl:
+        return search_errors_from_jtl(jtl, search, limit)
     agg = _aggregator_for_run(run)
     if not agg:
         return []
@@ -451,12 +457,13 @@ def get_run_logs(
     run = db.get(TestRun, run_id)
     if not run:
         raise HTTPException(404, "Test run not found")
-    if not run.log_path:
+    log_path = resolve_log_path(run)
+    if not log_path:
         return TestRunLogsOut(content="", offset=0, size=0, complete=run.status in (
             TestRunStatus.COMPLETED, TestRunStatus.FAILED, TestRunStatus.CANCELLED
         ))
 
-    content, size = _read_jmeter_log(Path(run.log_path), offset)
+    content, size = _read_jmeter_log(log_path, offset)
     complete = run.status in (TestRunStatus.COMPLETED, TestRunStatus.FAILED, TestRunStatus.CANCELLED)
     return TestRunLogsOut(content=content, offset=size, size=size, complete=complete)
 
@@ -496,11 +503,13 @@ def get_run_errors_graph(
 @router.get("/{run_id}/artifacts", response_model=list[ArtifactInfo])
 def list_artifacts(run_id: int, db: Session = Depends(get_db)):
     run = db.get(TestRun, run_id)
-    if not run or not run.run_dir:
+    root = ensure_run_directory(run)
+    if not root:
         raise HTTPException(404, "Run or artifacts not found")
-    root = Path(run.run_dir)
     items: list[ArtifactInfo] = []
     for p in sorted(root.rglob("*")):
+        if p.name == ".source":
+            continue
         rel = p.relative_to(root)
         items.append(
             ArtifactInfo(
@@ -522,9 +531,8 @@ def download_artifact(
     run = db.get(TestRun, run_id)
     if not run or not run.run_dir:
         raise HTTPException(404, "Run not found")
-    target = (Path(run.run_dir) / file).resolve()
-    run_root = Path(run.run_dir).resolve()
-    if not str(target).startswith(str(run_root)) or not target.is_file():
+    target = resolve_run_file(run, file)
+    if not target:
         raise HTTPException(404, "File not found")
     return FileResponse(target, filename=target.name)
 
@@ -538,8 +546,9 @@ def compare_runs(body: CompareRequest, db: Session = Depends(get_db)):
             continue
         enriched = _enrich_run(run, db)
         transactions: list[TransactionMetric] = []
-        if run.jtl_path and Path(run.jtl_path).exists():
-            agg = parse_jtl_file(run.jtl_path)
+        jtl = resolve_jtl_path(run)
+        if jtl:
+            agg = parse_jtl_file(jtl)
             transactions = agg.transaction_metrics()
         elif run_manager.get_aggregator(run_id):
             transactions = run_manager.get_aggregator(run_id).transaction_metrics()
