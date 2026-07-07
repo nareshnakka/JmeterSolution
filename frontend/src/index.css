@@ -56,11 +56,30 @@ a:hover { color: var(--brand-dark); text-decoration: underline; }
 }
 
 .app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
   background: linear-gradient(180deg, var(--brand) 0%, var(--brand-dark) 100%);
   color: var(--text-inverse);
   padding: 0.75rem 1.5rem;
   box-shadow: var(--shadow-md);
   border-bottom: 3px solid var(--brand-darker);
+}
+
+.archive-global-status {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  padding: 0.35rem 0.75rem;
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.15);
+  white-space: nowrap;
+  animation: archive-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes archive-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.72; }
 }
 
 .app-brand {

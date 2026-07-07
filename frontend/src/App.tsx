@@ -1,4 +1,5 @@
 import { NavLink, Route, Routes } from 'react-router-dom'
+import { ArchiveGlobalStatus, ArchiveOperationsProvider } from './context/ArchiveOperationsContext'
 import { ToastProvider } from './components/Toast'
 import HierarchyPage from './pages/HierarchyPage'
 import ScenariosPage from './pages/ScenariosPage'
@@ -12,6 +13,7 @@ import { APP_VERSION } from './version'
 export default function App() {
   return (
     <ToastProvider>
+      <ArchiveOperationsProvider>
       <div className="app-shell">
         <header className="app-header">
           <div className="app-brand">
@@ -27,6 +29,7 @@ export default function App() {
               <div className="app-brand-tagline">Performance Test Management</div>
             </div>
           </div>
+          <ArchiveGlobalStatus />
         </header>
         <div className="layout">
           <aside className="sidebar">
@@ -52,6 +55,7 @@ export default function App() {
           </main>
         </div>
       </div>
+      </ArchiveOperationsProvider>
     </ToastProvider>
   )
 }
