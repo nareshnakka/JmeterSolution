@@ -14,12 +14,35 @@ import type { ErrorSample, LiveMetrics, TestRun, TransactionMetric } from '../ty
 import { timelineScaleForSeconds } from '../utils/timeline'
 import { computeTransactionTotals } from '../utils/transactionTotals'
 import { filterTransactionsByKind } from '../utils/transactionKind'
+import { defaultSortDir, sortTransactions, type AggregateSortField, type SortDir } from '../utils/sortTransactions'
 import type { AggregateKindFilter } from '../types'
 
 const DEFAULT_REFRESH_SECONDS = 10
 
 type GraphSeries = { label: string; points: { t: number; avg_ms: number }[] }
 type ErrorGraphSeries = { label: string; points: { t: number; errors: number }[] }
+
+function SortableAggregateHeader({
+  field,
+  label,
+  sortField,
+  sortDir,
+  onSort,
+}: {
+  field: AggregateSortField
+  label: string
+  sortField: AggregateSortField
+  sortDir: SortDir
+  onSort: (field: AggregateSortField) => void
+}) {
+  const active = sortField === field
+  return (
+    <th className="compare-sortable" onClick={() => onSort(field)} title="Click to sort">
+      {label}
+      <span className="compare-sort-indicator">{active ? (sortDir === 'asc' ? ' ▲' : ' ▼') : ''}</span>
+    </th>
+  )
+}
 
 export default function LiveDashboard() {
   const { runId } = useParams()
@@ -32,6 +55,8 @@ export default function LiveDashboard() {
   const [selectedLabels, setSelectedLabels] = useState<Set<string>>(new Set())
   const [labelFilter, setLabelFilter] = useState('')
   const [kindFilter, setKindFilter] = useState<AggregateKindFilter>('all')
+  const [sortField, setSortField] = useState<AggregateSortField>('label')
+  const [sortDir, setSortDir] = useState<SortDir>('asc')
   const [graphData, setGraphData] = useState<GraphSeries[]>([])
   const [graphMode, setGraphMode] = useState<'individual' | 'cumulative'>('cumulative')
   const [errorsGraphData, setErrorsGraphData] = useState<ErrorGraphSeries[]>([])
@@ -75,6 +100,9 @@ export default function LiveDashboard() {
     setGraphMode('cumulative')
     setErrorsGraphMode('all')
     setErrorFilter('')
+    setKindFilter('all')
+    setSortField('label')
+    setSortDir('asc')
     setRefreshGeneration(0)
     skipSearchRefreshRef.current = true
   }, [id])
@@ -327,6 +355,20 @@ export default function LiveDashboard() {
     [filteredTransactions]
   )
 
+  const sortedTransactions = useMemo(
+    () => sortTransactions(filteredTransactions, sortField, sortDir),
+    [filteredTransactions, sortField, sortDir]
+  )
+
+  const handleAggregateSort = useCallback((field: AggregateSortField) => {
+    if (sortField === field) {
+      setSortDir((dir) => (dir === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortField(field)
+      setSortDir(defaultSortDir(field))
+    }
+  }, [sortField])
+
   const usersChartData = metrics?.active_users_series ?? []
 
   const elapsedDisplay = useMemo(() => {
@@ -501,20 +543,80 @@ export default function LiveDashboard() {
           <thead>
             <tr>
               <th></th>
-              <th>Label</th>
-              <th># Samples</th>
-              <th>Avg (ms)</th>
-              <th>Min</th>
-              <th>Max</th>
-              <th>Median</th>
-              <th>90% Line</th>
-              <th>95% Line</th>
-              <th>Error %</th>
-              <th>Throughput</th>
+              <SortableAggregateHeader
+                field="label"
+                label="Label"
+                sortField={sortField}
+                sortDir={sortDir}
+                onSort={handleAggregateSort}
+              />
+              <SortableAggregateHeader
+                field="samples"
+                label="# Samples"
+                sortField={sortField}
+                sortDir={sortDir}
+                onSort={handleAggregateSort}
+              />
+              <SortableAggregateHeader
+                field="avg_ms"
+                label="Avg (ms)"
+                sortField={sortField}
+                sortDir={sortDir}
+                onSort={handleAggregateSort}
+              />
+              <SortableAggregateHeader
+                field="min_ms"
+                label="Min"
+                sortField={sortField}
+                sortDir={sortDir}
+                onSort={handleAggregateSort}
+              />
+              <SortableAggregateHeader
+                field="max_ms"
+                label="Max"
+                sortField={sortField}
+                sortDir={sortDir}
+                onSort={handleAggregateSort}
+              />
+              <SortableAggregateHeader
+                field="median_ms"
+                label="Median"
+                sortField={sortField}
+                sortDir={sortDir}
+                onSort={handleAggregateSort}
+              />
+              <SortableAggregateHeader
+                field="p90_ms"
+                label="90% Line"
+                sortField={sortField}
+                sortDir={sortDir}
+                onSort={handleAggregateSort}
+              />
+              <SortableAggregateHeader
+                field="p95_ms"
+                label="95% Line"
+                sortField={sortField}
+                sortDir={sortDir}
+                onSort={handleAggregateSort}
+              />
+              <SortableAggregateHeader
+                field="error_pct"
+                label="Error %"
+                sortField={sortField}
+                sortDir={sortDir}
+                onSort={handleAggregateSort}
+              />
+              <SortableAggregateHeader
+                field="throughput"
+                label="Throughput"
+                sortField={sortField}
+                sortDir={sortDir}
+                onSort={handleAggregateSort}
+              />
             </tr>
           </thead>
           <tbody>
-            {filteredTransactions.map((t: TransactionMetric) => (
+            {sortedTransactions.map((t: TransactionMetric) => (
               <tr
                 key={t.label}
                 className={selectedLabels.has(t.label) ? 'selected' : ''}
