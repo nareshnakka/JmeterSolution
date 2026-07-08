@@ -54,15 +54,41 @@ class Sample:
     failure_message: str
     all_threads: int = 0
     url: str = ""
+    data_type: str = ""
+    sample_type: str = ""
     response_data: str = ""
     response_headers: str = ""
     request_headers: str = ""
 
 
-def _label_kind(items: list[Sample]) -> str:
-    """HTTP/API samples have a URL; transaction controllers typically do not."""
-    if any(s.url.strip() for s in items):
+def _sample_kind(sample: Sample) -> str:
+    """Classify JMeter samples: transaction controllers vs HTTP/API requests."""
+    msg = (sample.response_message or "").lower()
+    data_type = (sample.data_type or "").strip().lower()
+    url = (sample.url or "").strip().lower()
+    sample_type = (sample.sample_type or "").strip().lower()
+
+    if "samples in transaction" in msg:
+        return "transaction"
+
+    if sample_type:
+        if "transaction" in sample_type:
+            return "transaction"
+        if sample_type in ("http", "https") or "httpsample" in sample_type.replace("_", ""):
+            return "request"
+
+    # Transaction controllers leave dataType blank; HTTP samplers use text/bin.
+    if not data_type:
+        if url.startswith(("http://", "https://", "jdbc:")):
+            return "request"
+        return "transaction"
+
+    if data_type in ("text", "bin", "text/plain", "application/json", "application/xml"):
         return "request"
+
+    if url.startswith(("http://", "https://", "jdbc:")):
+        return "request"
+
     return "transaction"
 
 
@@ -163,15 +189,20 @@ class MetricsAggregator:
         series.sort(key=lambda e: e.get("bucket", 0))
 
     def transaction_metrics(self, label_filter: str | None = None) -> list[TransactionMetric]:
-        grouped: dict[str, list[Sample]] = defaultdict(list)
+        grouped: dict[tuple[str, str], list[Sample]] = defaultdict(list)
         for s in self.samples:
             if label_filter and label_filter not in s.label:
                 continue
-            grouped[s.label].append(s)
+            grouped[(s.label, _sample_kind(s))].append(s)
+
+        transaction_labels = {label for (label, kind) in grouped if kind == "transaction"}
 
         results: list[TransactionMetric] = []
         elapsed_sec = max(time.time() - self.start_wall_time, 0.001)
-        for label, items in sorted(grouped.items()):
+        for (label, kind), items in sorted(grouped.items()):
+            # Skip request aggregates that share a label with a transaction controller row.
+            if kind == "request" and label in transaction_labels:
+                continue
             elapsed_vals = [i.elapsed_ms for i in items]
             errors = sum(1 for i in items if not i.success)
             n = len(items)
@@ -179,7 +210,7 @@ class MetricsAggregator:
             results.append(
                 TransactionMetric(
                     label=label,
-                    kind=_label_kind(items),
+                    kind=kind,
                     samples=n,
                     errors=errors,
                     error_pct=round(100.0 * errors / n, 2) if n else 0,
@@ -324,6 +355,8 @@ def _sample_from_row(row: list[str], header: dict[str, int], sample_index: int) 
             failure_message=_col(row, header, "failureMessage"),
             all_threads=int(all_threads_raw) if all_threads_raw.isdigit() else 0,
             url=_col(row, header, "URL"),
+            data_type=_col(row, header, "dataType"),
+            sample_type=_col(row, header, "sampleType"),
             response_data=_col(row, header, "responseData"),
             response_headers=_col(row, header, "responseHeaders"),
             request_headers=_col(row, header, "requestHeaders"),

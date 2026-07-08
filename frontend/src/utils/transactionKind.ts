@@ -1,7 +1,8 @@
 import type { AggregateKindFilter, TransactionMetric, TransactionKind } from '../types'
 
 export function resolveTransactionKind(metric: TransactionMetric): TransactionKind {
-  return metric.kind === 'request' ? 'request' : 'transaction'
+  if (metric.kind === 'request') return 'request'
+  return 'transaction'
 }
 
 export function filterTransactionsByKind(
@@ -9,5 +10,13 @@ export function filterTransactionsByKind(
   kindFilter: AggregateKindFilter
 ): TransactionMetric[] {
   if (kindFilter === 'all') return transactions
-  return transactions.filter((t) => resolveTransactionKind(t) === kindFilter)
+  if (kindFilter === 'request') {
+    const transactionLabels = new Set(
+      transactions.filter((t) => resolveTransactionKind(t) === 'transaction').map((t) => t.label)
+    )
+    return transactions.filter(
+      (t) => resolveTransactionKind(t) === 'request' && !transactionLabels.has(t.label)
+    )
+  }
+  return transactions.filter((t) => resolveTransactionKind(t) === 'transaction')
 }

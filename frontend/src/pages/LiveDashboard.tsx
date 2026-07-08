@@ -618,7 +618,7 @@ export default function LiveDashboard() {
           <tbody>
             {sortedTransactions.map((t: TransactionMetric) => (
               <tr
-                key={t.label}
+                key={`${t.label}-${t.kind ?? 'unknown'}`}
                 className={selectedLabels.has(t.label) ? 'selected' : ''}
                 onClick={() => toggleLabel(t.label)}
                 style={{ cursor: 'pointer' }}
