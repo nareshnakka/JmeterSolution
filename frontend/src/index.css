@@ -283,6 +283,17 @@ th {
 tr:hover td { background: var(--brand-light); }
 tr.selected td { background: var(--brand-light); }
 
+tfoot .aggregate-total-row td {
+  background: var(--surface2);
+  border-top: 2px solid var(--border-light);
+  border-bottom: none;
+  font-weight: 600;
+}
+
+tfoot .aggregate-total-row:hover td {
+  background: var(--surface2);
+}
+
 .badge {
   display: inline-block;
   padding: 0.125rem 0.625rem;

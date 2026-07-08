@@ -12,6 +12,7 @@ import {
 import { useToast } from '../components/Toast'
 import type { ErrorSample, LiveMetrics, TestRun, TransactionMetric } from '../types'
 import { timelineScaleForSeconds } from '../utils/timeline'
+import { computeTransactionTotals } from '../utils/transactionTotals'
 
 const DEFAULT_REFRESH_SECONDS = 10
 
@@ -317,6 +318,11 @@ export default function LiveDashboard() {
     return metrics.transactions.filter((t) => t.label.toLowerCase().includes(q))
   }, [metrics, labelFilter])
 
+  const transactionTotals = useMemo(
+    () => computeTransactionTotals(filteredTransactions),
+    [filteredTransactions]
+  )
+
   const usersChartData = metrics?.active_users_series ?? []
 
   const elapsedDisplay = useMemo(() => {
@@ -488,6 +494,25 @@ export default function LiveDashboard() {
               </tr>
             ))}
           </tbody>
+          {transactionTotals && (
+            <tfoot>
+              <tr className="aggregate-total-row">
+                <td />
+                <td><strong>TOTAL</strong></td>
+                <td><strong>{transactionTotals.samples}</strong></td>
+                <td><strong>{transactionTotals.avg_ms}</strong></td>
+                <td><strong>{transactionTotals.min_ms}</strong></td>
+                <td><strong>{transactionTotals.max_ms}</strong></td>
+                <td><strong>{transactionTotals.median_ms}</strong></td>
+                <td><strong>{transactionTotals.p90_ms}</strong></td>
+                <td><strong>{transactionTotals.p95_ms}</strong></td>
+                <td style={{ color: transactionTotals.error_pct > 0 ? 'var(--danger)' : undefined }}>
+                  <strong>{transactionTotals.error_pct}%</strong>
+                </td>
+                <td><strong>{transactionTotals.throughput}/s</strong></td>
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
 
