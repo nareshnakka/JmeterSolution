@@ -59,6 +59,13 @@ class Sample:
     request_headers: str = ""
 
 
+def _label_kind(items: list[Sample]) -> str:
+    """HTTP/API samples have a URL; transaction controllers typically do not."""
+    if any(s.url.strip() for s in items):
+        return "request"
+    return "transaction"
+
+
 @dataclass
 class MetricsAggregator:
     test_run_id: int
@@ -172,6 +179,7 @@ class MetricsAggregator:
             results.append(
                 TransactionMetric(
                     label=label,
+                    kind=_label_kind(items),
                     samples=n,
                     errors=errors,
                     error_pct=round(100.0 * errors / n, 2) if n else 0,

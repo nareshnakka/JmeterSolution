@@ -160,8 +160,12 @@ export interface CompareNavigationState {
   selectedRunIds?: number[]
 }
 
+export type TransactionKind = 'transaction' | 'request'
+export type AggregateKindFilter = 'all' | TransactionKind
+
 export interface TransactionMetric {
   label: string
+  kind?: TransactionKind
   samples: number
   errors: number
   error_pct: number

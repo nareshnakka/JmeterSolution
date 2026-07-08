@@ -295,6 +295,7 @@ class HostResourcesOut(BaseModel):
 
 class TransactionMetric(BaseModel):
     label: str
+    kind: str = "transaction"
     samples: int = 0
     errors: int = 0
     error_pct: float = 0.0

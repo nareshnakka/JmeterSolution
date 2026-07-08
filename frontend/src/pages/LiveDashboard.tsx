@@ -13,6 +13,8 @@ import { useToast } from '../components/Toast'
 import type { ErrorSample, LiveMetrics, TestRun, TransactionMetric } from '../types'
 import { timelineScaleForSeconds } from '../utils/timeline'
 import { computeTransactionTotals } from '../utils/transactionTotals'
+import { filterTransactionsByKind } from '../utils/transactionKind'
+import type { AggregateKindFilter } from '../types'
 
 const DEFAULT_REFRESH_SECONDS = 10
 
@@ -29,6 +31,7 @@ export default function LiveDashboard() {
   const [stopping, setStopping] = useState(false)
   const [selectedLabels, setSelectedLabels] = useState<Set<string>>(new Set())
   const [labelFilter, setLabelFilter] = useState('')
+  const [kindFilter, setKindFilter] = useState<AggregateKindFilter>('all')
   const [graphData, setGraphData] = useState<GraphSeries[]>([])
   const [graphMode, setGraphMode] = useState<'individual' | 'cumulative'>('cumulative')
   const [errorsGraphData, setErrorsGraphData] = useState<ErrorGraphSeries[]>([])
@@ -313,10 +316,11 @@ export default function LiveDashboard() {
 
   const filteredTransactions = useMemo(() => {
     if (!metrics) return []
-    if (!labelFilter) return metrics.transactions
+    let rows = filterTransactionsByKind(metrics.transactions, kindFilter)
+    if (!labelFilter) return rows
     const q = labelFilter.toLowerCase()
-    return metrics.transactions.filter((t) => t.label.toLowerCase().includes(q))
-  }, [metrics, labelFilter])
+    return rows.filter((t) => t.label.toLowerCase().includes(q))
+  }, [metrics, labelFilter, kindFilter])
 
   const transactionTotals = useMemo(
     () => computeTransactionTotals(filteredTransactions),
@@ -453,8 +457,45 @@ export default function LiveDashboard() {
 
       <div className="card">
         <h2>Aggregate Report (live)</h2>
-        <div className="filters">
-          <input placeholder="Filter transactions…" value={labelFilter} onChange={(e) => setLabelFilter(e.target.value)} />
+        <div className="aggregate-report-filters">
+          <div className="aggregate-kind-filters" role="radiogroup" aria-label="Sample type">
+            <label className="aggregate-kind-option">
+              <input
+                type="radio"
+                name="aggregate-kind"
+                value="transaction"
+                checked={kindFilter === 'transaction'}
+                onChange={() => setKindFilter('transaction')}
+              />
+              Transactions
+            </label>
+            <label className="aggregate-kind-option">
+              <input
+                type="radio"
+                name="aggregate-kind"
+                value="request"
+                checked={kindFilter === 'request'}
+                onChange={() => setKindFilter('request')}
+              />
+              APIs / Requests
+            </label>
+            <label className="aggregate-kind-option">
+              <input
+                type="radio"
+                name="aggregate-kind"
+                value="all"
+                checked={kindFilter === 'all'}
+                onChange={() => setKindFilter('all')}
+              />
+              All
+            </label>
+          </div>
+          <input
+            className="aggregate-label-filter"
+            placeholder="Filter by label…"
+            value={labelFilter}
+            onChange={(e) => setLabelFilter(e.target.value)}
+          />
         </div>
         <table>
           <thead>
@@ -514,6 +555,9 @@ export default function LiveDashboard() {
             </tfoot>
           )}
         </table>
+        {metrics && filteredTransactions.length === 0 && (
+          <p className="empty">No rows match the current filters</p>
+        )}
       </div>
 
       <div className="card">
