@@ -38,6 +38,8 @@ export const ActiveUsersChart = memo(function ActiveUsersChart({
               <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
               <XAxis
                 dataKey="t"
+                type="number"
+                domain={['dataMin', 'dataMax']}
                 stroke={chartTheme.axis}
                 tickFormatter={(t) => timeline.formatValue(Number(t))}
                 label={{ value: timeline.axisLabel, position: 'insideBottom', offset: -5 }}

@@ -156,7 +156,7 @@ class MetricsAggregator:
         bucket = int(elapsed // self.bucket_seconds)
         if bucket > self._last_bucket:
             self.active_users_series.append(
-                {"t": round(elapsed, 1), "users": sample.all_threads}
+                {"bucket": bucket, "t": self._bucket_time(bucket), "users": sample.all_threads}
             )
             self._last_bucket = bucket
         elif self.active_users_series:
@@ -226,6 +226,28 @@ class MetricsAggregator:
             )
         return results
 
+    def _filled_active_users_series(self) -> list[dict[str, Any]]:
+        """Return bucket-aligned active-user points with gaps filled for a linear timeline."""
+        if not self.active_users_series:
+            return []
+
+        by_bucket: dict[int, int] = {}
+        for entry in self.active_users_series:
+            bucket = entry.get("bucket")
+            if bucket is None:
+                bucket = int(round(float(entry.get("t", 0)) / self.bucket_seconds))
+            users = int(entry.get("users", 0))
+            by_bucket[bucket] = max(by_bucket.get(bucket, 0), users)
+
+        max_bucket = max(by_bucket)
+        result: list[dict[str, Any]] = []
+        last_users = 0
+        for bucket in range(0, max_bucket + 1):
+            if bucket in by_bucket:
+                last_users = by_bucket[bucket]
+            result.append({"t": self._bucket_time(bucket), "users": last_users})
+        return result
+
     def snapshot(self) -> LiveMetricsSnapshot:
         elapsed = time.time() - self.start_wall_time
         total_errors = sum(1 for s in self.samples if not s.success)
@@ -238,7 +260,7 @@ class MetricsAggregator:
             total_errors=total_errors,
             transactions=self.transaction_metrics(),
             errors=self.errors[-50:],
-            active_users_series=self.active_users_series,
+            active_users_series=self._filled_active_users_series(),
         )
 
     def label_graph(
