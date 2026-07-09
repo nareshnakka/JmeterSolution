@@ -449,3 +449,45 @@ class ArchiveActionOut(BaseModel):
 class AutoArchiveOut(BaseModel):
     archived: list[int]
     retention_months: int
+
+
+class AppNotificationOut(BaseModel):
+    id: int
+    kind: str
+    title: str
+    message: str
+    payload: dict | None = None
+    actions: list[dict] = Field(default_factory=list)
+    created_at: datetime
+
+    @field_serializer("created_at", when_used="json")
+    def serialize_created_at(self, value: datetime) -> str:
+        return to_utc_iso(value)
+
+
+class NotificationClearRequest(BaseModel):
+    ids: list[int] | None = None
+
+
+class NotificationClearOut(BaseModel):
+    deleted: int
+
+
+class UpdateCheckOut(BaseModel):
+    current_version: str
+    latest_version: str | None = None
+    update_available: bool = False
+    remote_commit: str | None = None
+    repo_available: bool = False
+    pending_version: str | None = None
+    update_started: bool = False
+
+
+class UpdateApplyRequest(BaseModel):
+    confirmed: bool = True
+    version: str | None = None
+
+
+class UpdateApplyOut(BaseModel):
+    status: str
+    message: str

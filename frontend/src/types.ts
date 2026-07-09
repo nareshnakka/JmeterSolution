@@ -161,6 +161,33 @@ export interface CompareNavigationState {
   selectedRunIds?: number[]
 }
 
+export interface AppNotificationAction {
+  type: string
+  label: string
+  version?: string
+  run_id?: number
+}
+
+export interface AppNotification {
+  id: number
+  kind: string
+  title: string
+  message: string
+  payload?: Record<string, unknown>
+  actions: AppNotificationAction[]
+  created_at: string
+}
+
+export interface UpdateCheck {
+  current_version: string
+  latest_version?: string
+  update_available: boolean
+  remote_commit?: string
+  repo_available: boolean
+  pending_version?: string
+  update_started: boolean
+}
+
 export type TransactionKind = 'transaction' | 'request'
 export type AggregateKindFilter = 'all' | TransactionKind
 

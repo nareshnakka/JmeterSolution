@@ -116,6 +116,21 @@ export const api = {
 
   listTestRuns: () => request<import('./types').TestRun[]>('/test-runs'),
   getTestRunQueue: () => request<import('./types').TestRunQueue>('/test-runs/queue'),
+  getNotifications: () => request<import('./types').AppNotification[]>('/notifications'),
+  clearNotifications: (ids?: number[]) =>
+    request<{ deleted: number }>('/notifications/clear', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: ids ?? null }),
+    }),
+  getUpdateStatus: () => request<import('./types').UpdateCheck>('/updates/status'),
+  checkForUpdates: () => request<import('./types').UpdateCheck>('/updates/check'),
+  applyUpdate: (version?: string) =>
+    request<{ status: string; message: string }>('/updates/apply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirmed: true, version: version ?? null }),
+    }),
   deleteTestRuns: (ids: number[]) =>
     request<{ deleted: number[]; failed: { id: number; error: string }[] }>('/test-runs/delete', {
       method: 'POST',

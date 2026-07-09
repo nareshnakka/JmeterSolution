@@ -1,5 +1,7 @@
 import { NavLink, Route, Routes } from 'react-router-dom'
 import { ArchiveGlobalStatus, ArchiveOperationsProvider } from './context/ArchiveOperationsContext'
+import { NotificationsProvider } from './context/NotificationsContext'
+import { NotificationBell } from './components/NotificationBell'
 import { ToastProvider } from './components/Toast'
 import HierarchyPage from './pages/HierarchyPage'
 import ScenariosPage from './pages/ScenariosPage'
@@ -14,6 +16,7 @@ export default function App() {
   return (
     <ToastProvider>
       <ArchiveOperationsProvider>
+      <NotificationsProvider>
       <div className="app-shell">
         <header className="app-header">
           <div className="app-brand">
@@ -29,7 +32,10 @@ export default function App() {
               <div className="app-brand-tagline">Performance Test Management</div>
             </div>
           </div>
-          <ArchiveGlobalStatus />
+          <div className="app-header-actions">
+            <ArchiveGlobalStatus />
+            <NotificationBell />
+          </div>
         </header>
         <div className="layout">
           <aside className="sidebar">
@@ -55,6 +61,7 @@ export default function App() {
           </main>
         </div>
       </div>
+      </NotificationsProvider>
       </ArchiveOperationsProvider>
     </ToastProvider>
   )

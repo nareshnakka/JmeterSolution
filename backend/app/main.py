@@ -13,8 +13,9 @@ from app.config import settings
 from app.database import SessionLocal, init_db
 from app.services.system_config import get_system_config
 from app.services.run_queue import reconcile_stale_runs, process_run_queue
-from app.routers import config, hierarchy, test_runs, websocket
+from app.routers import config, hierarchy, notifications, test_runs, websocket
 from app.services.scheduler import shutdown_scheduler, start_scheduler
+from app.services.update_manager import update_manager
 from app.version import version_full, version_label
 
 _frontend_dist = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
@@ -45,7 +46,14 @@ async def lifespan(app: FastAPI):
         db.close()
     await process_run_queue()
     start_scheduler()
+    db2 = SessionLocal()
+    try:
+        update_manager.check_for_updates(db2, notify=True)
+    finally:
+        db2.close()
+    await update_manager.start_background_checks()
     yield
+    update_manager.stop_background_checks()
     shutdown_scheduler()
 
 
@@ -62,6 +70,7 @@ app.add_middleware(
 app.include_router(hierarchy.router)
 app.include_router(test_runs.router)
 app.include_router(config.router)
+app.include_router(notifications.router)
 app.include_router(websocket.router)
 
 

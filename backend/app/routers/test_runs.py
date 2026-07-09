@@ -9,7 +9,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session, joinedload
 
-from app.database import get_db
+from app.database import SessionLocal, get_db
 from app.models import Application, Build, Release, Scenario, ScenarioSchedule, TestRun, TestRunStatus, TestRunType
 from app.schemas import (
     ArtifactInfo,
@@ -352,6 +352,13 @@ async def cancel_run(run_id: int, db: Session = Depends(get_db)):
     db.commit()
 
     await process_run_queue()
+    db_after = SessionLocal()
+    try:
+        from app.services.update_manager import update_manager
+
+        update_manager.try_apply_pending(db_after)
+    finally:
+        db_after.close()
     return {"ok": True}
 
 

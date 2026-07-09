@@ -305,6 +305,16 @@ class RunManager:
                 run.error_message = f"JMeter exited with code {exit_code}"
                 agg.status = TestRunStatus.FAILED
             db.commit()
+
+            scenario = db.get(Scenario, run.scenario_id)
+            from app.services.app_notifications import notify_test_run_finished
+
+            notify_test_run_finished(
+                db,
+                run_id=run.id,
+                scenario_name=scenario.name if scenario else f"Run #{run.id}",
+                status=run.status.value,
+            )
         finally:
             db.close()
 
@@ -313,8 +323,14 @@ class RunManager:
         await self.broadcast(run_id, {"type": "finished", "data": {"status": agg.status.value}})
 
         from app.services.run_queue import process_run_queue
+        from app.services.update_manager import update_manager
 
         await process_run_queue()
+        db_after = SessionLocal()
+        try:
+            update_manager.try_apply_pending(db_after)
+        finally:
+            db_after.close()
         self._finalize_run_process(run_id)
 
     def _refresh_jmeter_pid(self, run_id: int, proc: subprocess.Popen) -> int | None:
