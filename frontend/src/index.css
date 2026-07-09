@@ -474,6 +474,11 @@ tfoot .aggregate-total-row:hover td {
   max-width: 20rem;
 }
 
+.aggregate-export-btn {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
 .badge {
   display: inline-block;
   padding: 0.125rem 0.625rem;

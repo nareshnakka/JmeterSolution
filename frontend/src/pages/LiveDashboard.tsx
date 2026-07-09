@@ -16,6 +16,7 @@ import { timelineScaleForSeconds } from '../utils/timeline'
 import { computeTransactionTotals, metricToTotals } from '../utils/transactionTotals'
 import { filterTransactionsByKind } from '../utils/transactionKind'
 import { defaultSortDir, sortTransactions, type AggregateSortField, type SortDir } from '../utils/sortTransactions'
+import { downloadAggregateReportCsv } from '../utils/exportAggregateCsv'
 import type { AggregateKindFilter } from '../types'
 
 const DEFAULT_REFRESH_SECONDS = 10
@@ -405,6 +406,21 @@ export default function LiveDashboard() {
     }
   }, [sortField])
 
+  const handleExportAggregateCsv = useCallback(() => {
+    const ok = downloadAggregateReportCsv({
+      rows: sortedTransactions,
+      totals: transactionTotals,
+      runId: id,
+      kindFilter,
+      labelFilter,
+    })
+    if (ok) {
+      toast.success('Aggregate report exported as CSV')
+    } else {
+      toast.error('No rows to export')
+    }
+  }, [sortedTransactions, transactionTotals, id, kindFilter, labelFilter, toast])
+
   const usersChartData = metrics?.active_users_series ?? []
   const throughputChartData = metrics?.throughput_series ?? []
 
@@ -582,6 +598,14 @@ export default function LiveDashboard() {
             value={labelFilter}
             onChange={(e) => setLabelFilter(e.target.value)}
           />
+          <button
+            type="button"
+            className="btn btn-secondary aggregate-export-btn"
+            disabled={sortedTransactions.length === 0}
+            onClick={handleExportAggregateCsv}
+          >
+            Export CSV
+          </button>
         </div>
         <table>
           <thead>
