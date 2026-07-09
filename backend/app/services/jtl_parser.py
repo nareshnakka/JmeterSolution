@@ -306,6 +306,7 @@ class MetricsAggregator:
             median_ms=round(statistics.median(sorted_vals), 2) if n else 0,
             p90_ms=round(_percentile(sorted_vals, 90), 2) if n else 0,
             p95_ms=round(_percentile(sorted_vals, 95), 2) if n else 0,
+            p99_ms=round(_percentile(sorted_vals, 99), 2) if n else 0,
             throughput=round(n / elapsed_sec, 2) if elapsed_sec > 0 else 0,
         )
 

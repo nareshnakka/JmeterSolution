@@ -16,6 +16,7 @@ export function metricToTotals(metric: TransactionMetric): TransactionTotals {
     median_ms: metric.median_ms,
     p90_ms: metric.p90_ms,
     p95_ms: metric.p95_ms,
+    p99_ms: metric.p99_ms,
     throughput: metric.throughput,
   }
 }
@@ -49,6 +50,7 @@ export function computeTransactionTotals(
     median_ms: round2(weighted((t) => t.median_ms)),
     p90_ms: round2(weighted((t) => t.p90_ms)),
     p95_ms: round2(weighted((t) => t.p95_ms)),
+    p99_ms: round2(weighted((t) => t.p99_ms)),
     throughput,
   }
 }

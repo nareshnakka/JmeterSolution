@@ -9,6 +9,7 @@ export type AggregateSortField =
   | 'median_ms'
   | 'p90_ms'
   | 'p95_ms'
+  | 'p99_ms'
   | 'error_pct'
   | 'throughput'
 

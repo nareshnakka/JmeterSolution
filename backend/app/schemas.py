@@ -306,6 +306,7 @@ class TransactionMetric(BaseModel):
     median_ms: float = 0.0
     p90_ms: float = 0.0
     p95_ms: float = 0.0
+    p99_ms: float = 0.0
     throughput: float = 0.0
 
 

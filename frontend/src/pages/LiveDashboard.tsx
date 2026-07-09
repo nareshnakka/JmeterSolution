@@ -644,6 +644,13 @@ export default function LiveDashboard() {
                 onSort={handleAggregateSort}
               />
               <SortableAggregateHeader
+                field="p99_ms"
+                label="99% Line"
+                sortField={sortField}
+                sortDir={sortDir}
+                onSort={handleAggregateSort}
+              />
+              <SortableAggregateHeader
                 field="error_pct"
                 label="Error %"
                 sortField={sortField}
@@ -676,6 +683,7 @@ export default function LiveDashboard() {
                 <td>{t.median_ms}</td>
                 <td>{t.p90_ms}</td>
                 <td>{t.p95_ms}</td>
+                <td>{t.p99_ms}</td>
                 <td style={{ color: t.error_pct > 0 ? 'var(--danger)' : undefined }}>{t.error_pct}%</td>
                 <td>{t.throughput}/s</td>
               </tr>
@@ -693,6 +701,7 @@ export default function LiveDashboard() {
                 <td><strong>{transactionTotals.median_ms}</strong></td>
                 <td><strong>{transactionTotals.p90_ms}</strong></td>
                 <td><strong>{transactionTotals.p95_ms}</strong></td>
+                <td><strong>{transactionTotals.p99_ms}</strong></td>
                 <td style={{ color: transactionTotals.error_pct > 0 ? 'var(--danger)' : undefined }}>
                   <strong>{transactionTotals.error_pct}%</strong>
                 </td>

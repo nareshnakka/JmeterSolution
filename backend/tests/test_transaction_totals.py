@@ -40,6 +40,26 @@ def test_transaction_totals_pools_samples_for_true_average():
     assert total.min_ms == 100.0
     assert total.max_ms == 900.0
     assert total.median_ms == 500.0
+    assert total.p90_ms == 870.0
+    assert total.p95_ms == 885.0
+    assert total.p99_ms == 897.0
+
+
+def test_transaction_totals_error_pct_and_throughput():
+    agg = MetricsAggregator(test_run_id=1)
+    agg.status = TestRunStatus.COMPLETED
+    agg.start_wall_time = 0
+    agg.samples = [
+        _sample(label="A", elapsed_ms=100, timestamp_ms=0, success=True),
+        _sample(label="A", elapsed_ms=200, timestamp_ms=5_000, success=False),
+    ]
+    agg._error_count = 1
+
+    total = agg.transaction_totals()
+    assert total is not None
+    assert total.samples == 2
+    assert total.error_pct == 50.0
+    assert total.throughput == 0.4
 
 
 def test_transaction_totals_respects_kind_filter():

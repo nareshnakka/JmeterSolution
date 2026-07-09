@@ -203,6 +203,7 @@ export interface TransactionMetric {
   median_ms: number
   p90_ms: number
   p95_ms: number
+  p99_ms: number
   throughput: number
 }
 
@@ -216,6 +217,7 @@ export interface TransactionTotals {
   median_ms: number
   p90_ms: number
   p95_ms: number
+  p99_ms: number
   throughput: number
 }
 
