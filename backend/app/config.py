@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8080
     metrics_bucket_seconds: int = 5
+    metrics_tail_interval_seconds: int = 3
     cors_origins: str = "http://localhost:5173,http://localhost:8080"
 
     @property

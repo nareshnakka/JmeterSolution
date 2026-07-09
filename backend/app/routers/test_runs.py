@@ -54,6 +54,9 @@ from app.utils.datetime_utils import utc_now
 
 router = APIRouter(prefix="/api/test-runs", tags=["test-runs"])
 
+# Cache parsed JTL aggregators for completed runs (keyed by file mtime + size).
+_jtl_agg_cache: dict[int, tuple[int, int, object]] = {}
+
 TERMINAL_RUN_STATUSES = frozenset(
     {TestRunStatus.COMPLETED, TestRunStatus.FAILED, TestRunStatus.CANCELLED}
 )
@@ -390,12 +393,17 @@ def _aggregator_for_run(run: TestRun):
             return file_agg
         return agg
 
-    file_agg = None
     if jtl:
+        stat = Path(jtl).stat()
+        cache_key = (stat.st_mtime_ns, stat.st_size)
+        cached = _jtl_agg_cache.get(run.id)
+        if cached and cached[0:2] == cache_key:
+            return cached[2]
         file_agg = parse_jtl_file(jtl)
         file_agg.test_run_id = run.id
-    if file_agg and (agg is None or len(file_agg.samples) >= len(agg.samples)):
-        return file_agg
+        _jtl_agg_cache[run.id] = (cache_key[0], cache_key[1], file_agg)
+        if agg is None or len(file_agg.samples) >= len(agg.samples):
+            return file_agg
     return agg
 
 
@@ -476,13 +484,13 @@ def get_run_errors(
     run = db.get(TestRun, run_id)
     if not run:
         raise HTTPException(404, "Test run not found")
+    agg = _aggregator_for_run(run)
+    if agg and (agg.samples or agg.errors):
+        return agg.search_errors(search, limit)
     jtl = resolve_jtl_path(run)
     if jtl:
         return search_errors_from_jtl(jtl, search, limit)
-    agg = _aggregator_for_run(run)
-    if not agg:
-        return []
-    return agg.search_errors(search, limit)
+    return []
 
 
 def _read_jmeter_log(log_path: Path, offset: int) -> tuple[str, int]:

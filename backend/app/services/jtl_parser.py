@@ -112,6 +112,13 @@ class MetricsAggregator:
     _users_by_timeline_bucket: dict[int, int] = field(default_factory=dict)
     _throughput_by_timeline_bucket: dict[int, int] = field(default_factory=dict)
     _header_map: dict[str, int] = field(default_factory=_default_header_map)
+    jtl_byte_offset: int = 0
+    _revision: int = 0
+    _error_count: int = 0
+    _snapshot_cache: LiveMetricsSnapshot | None = field(default=None, repr=False)
+    _snapshot_revision: int = -1
+    _transactions_cache: list[TransactionMetric] | None = field(default=None, repr=False)
+    _transactions_revision: int = -1
 
     def ingest_line(self, line: str) -> None:
         line = line.strip()
@@ -129,11 +136,13 @@ class MetricsAggregator:
     def _ingest_sample(self, sample: Sample) -> None:
         sample.sample_index = len(self.samples)
         self.samples.append(sample)
+        self._revision += 1
         if len(self.samples) == 1:
             self.start_wall_time = sample.timestamp_ms / 1000.0
         self._last_all_threads = max(self._last_all_threads, sample.all_threads)
         self._update_buckets(sample)
         if not sample.success:
+            self._error_count += 1
             self.errors.append(self._sample_to_error(sample))
         if len(self.errors) > 500:
             self.errors = self.errors[-500:]
@@ -197,7 +206,7 @@ class MetricsAggregator:
         return max_bucket
 
     def _filled_active_users_series(self) -> list[dict[str, Any]]:
-        """BlazeMeter-style virtual users: max concurrent users per 1s bucket, step-held."""
+        """Virtual users timeline — sparse step points (only value changes)."""
         if not self._users_by_timeline_bucket:
             return []
 
@@ -206,21 +215,35 @@ class MetricsAggregator:
         last_users = 0
         for bucket in range(0, max_bucket + 1):
             if bucket in self._users_by_timeline_bucket:
-                last_users = self._users_by_timeline_bucket[bucket]
-            result.append({"t": self._timeline_time(bucket), "users": last_users})
+                users = self._users_by_timeline_bucket[bucket]
+                if users != last_users:
+                    result.append({"t": self._timeline_time(bucket), "users": users})
+                    last_users = users
+        if not result:
+            result.append({"t": 0.0, "users": 0})
+        elif result[-1]["t"] < self._timeline_time(max_bucket):
+            result.append({"t": self._timeline_time(max_bucket), "users": last_users})
         return result
 
     def _filled_throughput_series(self) -> list[dict[str, Any]]:
-        """Hits per second per timeline bucket (successful samples)."""
-        if not self._throughput_by_timeline_bucket and not self.samples:
+        """Hits per second — only buckets with traffic (sparse)."""
+        if not self._throughput_by_timeline_bucket:
             return []
 
         max_bucket = self._timeline_max_bucket()
         result: list[dict[str, Any]] = []
-        for bucket in range(0, max_bucket + 1):
-            count = self._throughput_by_timeline_bucket.get(bucket, 0)
-            hits_per_sec = round(count / self.timeline_bucket_seconds, 2)
-            result.append({"t": self._timeline_time(bucket), "hits_per_sec": hits_per_sec})
+        for bucket in sorted(self._throughput_by_timeline_bucket):
+            if bucket > max_bucket:
+                continue
+            count = self._throughput_by_timeline_bucket[bucket]
+            if count <= 0:
+                continue
+            result.append(
+                {
+                    "t": self._timeline_time(bucket),
+                    "hits_per_sec": round(count / self.timeline_bucket_seconds, 2),
+                }
+            )
         return result
 
     def _append_error_bucket(
@@ -298,6 +321,10 @@ class MetricsAggregator:
         return self._metric_from_samples(items, self._elapsed_seconds())
 
     def transaction_metrics(self, label_filter: str | None = None) -> list[TransactionMetric]:
+        if label_filter is None and self._transactions_cache is not None:
+            if self._transactions_revision == self._revision:
+                return self._transactions_cache
+
         grouped: dict[tuple[str, str], list[Sample]] = defaultdict(list)
         label_q = label_filter.strip().lower() if label_filter else ""
 
@@ -318,23 +345,44 @@ class MetricsAggregator:
             metric.label = label
             metric.kind = kind
             results.append(metric)
+        if label_filter is None:
+            self._transactions_cache = results
+            self._transactions_revision = self._revision
         return results
 
     def snapshot(self) -> LiveMetricsSnapshot:
+        if self._snapshot_cache is not None and self._snapshot_revision == self._revision:
+            if self.status == TestRunStatus.RUNNING:
+                elapsed = round(self._elapsed_seconds(), 1)
+                if self._snapshot_cache.elapsed_seconds != elapsed:
+                    return LiveMetricsSnapshot(
+                        **{
+                            **self._snapshot_cache.model_dump(),
+                            "elapsed_seconds": elapsed,
+                            "active_threads": self._last_all_threads,
+                            "active_users_series": self._filled_active_users_series(),
+                            "throughput_series": self._filled_throughput_series(),
+                        }
+                    )
+            else:
+                return self._snapshot_cache
+
         elapsed = self._elapsed_seconds()
-        total_errors = sum(1 for s in self.samples if not s.success)
-        return LiveMetricsSnapshot(
+        snap = LiveMetricsSnapshot(
             test_run_id=self.test_run_id,
             status=self.status,
             active_threads=self._last_all_threads,
             elapsed_seconds=round(elapsed, 1),
             total_samples=len(self.samples),
-            total_errors=total_errors,
+            total_errors=self._error_count,
             transactions=self.transaction_metrics(),
             errors=self.errors[-50:],
             active_users_series=self._filled_active_users_series(),
             throughput_series=self._filled_throughput_series(),
         )
+        self._snapshot_cache = snap
+        self._snapshot_revision = self._revision
+        return snap
 
     def label_graph(
         self,
@@ -588,21 +636,45 @@ def _percentile(sorted_vals: list[float], pct: float) -> float:
     return sorted_vals[f] + (sorted_vals[c] - sorted_vals[f]) * (k - f)
 
 
-def parse_jtl_file(path: str | Path) -> MetricsAggregator:
-    """Parse a JTL file with CSV-aware parsing (handles multiline response bodies)."""
-    agg = MetricsAggregator(test_run_id=0, start_wall_time=time.time())
+def append_jtl_file(
+    agg: MetricsAggregator,
+    path: str | Path,
+    offset: int | None = None,
+) -> tuple[int, bool]:
+    """Append new JTL CSV rows from a byte offset. Returns (new_offset, changed)."""
     jtl = Path(path)
     if not jtl.is_file():
-        return agg
+        return offset if offset is not None else agg.jtl_byte_offset, False
+
+    start = offset if offset is not None else agg.jtl_byte_offset
+    size = jtl.stat().st_size
+    if size <= start:
+        return start, False
+
+    changed = False
     with open(jtl, encoding="utf-8", errors="replace") as f:
+        f.seek(start)
         reader = csv.reader(f)
-        try:
-            header_row = next(reader)
-        except StopIteration:
-            return agg
-        agg._header_map = {name.strip(): index for index, name in enumerate(header_row)}
-        for idx, row in enumerate(reader):
-            sample = _sample_from_row(row, agg._header_map, idx)
+        if start == 0:
+            try:
+                header_row = next(reader)
+            except StopIteration:
+                return 0, False
+            agg._header_map = {name.strip(): index for index, name in enumerate(header_row)}
+
+        for row in reader:
+            sample = _sample_from_row(row, agg._header_map, 0)
             if sample is not None:
                 agg._ingest_sample(sample)
+                changed = True
+        new_offset = f.tell()
+
+    agg.jtl_byte_offset = new_offset
+    return new_offset, changed
+
+
+def parse_jtl_file(path: str | Path) -> MetricsAggregator:
+    """Parse a full JTL file with CSV-aware parsing (handles multiline response bodies)."""
+    agg = MetricsAggregator(test_run_id=0, start_wall_time=time.time())
+    append_jtl_file(agg, path, 0)
     return agg

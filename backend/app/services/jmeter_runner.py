@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import SessionLocal
 from app.models import Application, Build, Release, Scenario, TestRun, TestRunStatus
-from app.services.jtl_parser import MetricsAggregator, parse_jtl_file
+from app.services.jtl_parser import MetricsAggregator, append_jtl_file, parse_jtl_file
 from app.scenario_properties import jmeter_cli_args, parse_jmeter_properties
 from app.services.host_resources import (
     append_host_sample,
@@ -59,8 +59,11 @@ class RunManager:
         self._ws_subscribers[run_id].discard(ws)
 
     async def broadcast(self, run_id: int, message: dict) -> None:
+        subscribers = self._ws_subscribers.get(run_id)
+        if not subscribers:
+            return
         dead = []
-        for ws in list(self._ws_subscribers.get(run_id, set())):
+        for ws in list(subscribers):
             try:
                 await ws.send_json(message)
             except Exception:
@@ -146,11 +149,11 @@ class RunManager:
             cmd.extend([
                 "-Jjmeter.save.saveservice.output_format=csv",
                 "-Jjmeter.save.saveservice.autoflush=true",
-                "-Jjmeter.save.saveservice.response_data=true",
+                "-Jjmeter.save.saveservice.response_data=false",
                 "-Jjmeter.save.saveservice.response_data.on_error=true",
                 "-Jjmeter.save.saveservice.response_data.max_size=1048576",
-                "-Jjmeter.save.saveservice.responseHeaders=true",
-                "-Jjmeter.save.saveservice.requestHeaders=true",
+                "-Jjmeter.save.saveservice.responseHeaders=false",
+                "-Jjmeter.save.saveservice.requestHeaders=false",
                 "-Jjmeter.save.saveservice.assertion_results_failure_message=true",
                 "-Jjmeter.save.saveservice.url=true",
                 "-Jjmeter.save.saveservice.sample_type=true",
@@ -256,28 +259,34 @@ class RunManager:
     ) -> None:
         agg = self._aggregators[run_id]
         last_size = 0
+        tail_interval = max(settings.metrics_tail_interval_seconds, 1)
+        heartbeat_ticks = max(1, round(10 / tail_interval))
+        tick = 0
+        pid_check_interval = 5
+        pid_check_counter = 0
 
-        while self._is_run_active(run_id, proc):
+        while self._is_run_active(run_id, proc, refresh_pid=(pid_check_counter == 0)):
+            pid_check_counter = (pid_check_counter + 1) % pid_check_interval
+            changed = False
             if jtl_path.exists():
                 size = jtl_path.stat().st_size
                 if size > last_size:
-                    refreshed = parse_jtl_file(jtl_path)
-                    refreshed.test_run_id = run_id
-                    refreshed.status = agg.status
-                    self._aggregators[run_id] = refreshed
-                    agg = refreshed
-                    last_size = size
-            snap = agg.snapshot()
-            await self.broadcast(run_id, {"type": "metrics", "data": snap.model_dump(mode="json")})
-            await asyncio.sleep(1)
+                    await asyncio.sleep(0.05)
+                    stable_size = jtl_path.stat().st_size
+                    if stable_size >= size:
+                        _, changed = append_jtl_file(agg, jtl_path)
+                        last_size = stable_size
+
+            tick += 1
+            subscribers = self._ws_subscribers.get(run_id)
+            if subscribers and (changed or tick % heartbeat_ticks == 0):
+                snap = agg.snapshot()
+                await self.broadcast(run_id, {"type": "metrics", "data": snap.model_dump(mode="json")})
+            await asyncio.sleep(tail_interval)
 
         # Final read
         if jtl_path.exists():
-            refreshed = parse_jtl_file(jtl_path)
-            refreshed.test_run_id = run_id
-            refreshed.status = agg.status
-            self._aggregators[run_id] = refreshed
-            agg = refreshed
+            append_jtl_file(agg, jtl_path)
 
         exit_code = proc.returncode
         try:
@@ -344,8 +353,11 @@ class RunManager:
             return refreshed
         return jmeter_pid
 
-    def _is_run_active(self, run_id: int, proc: subprocess.Popen) -> bool:
-        jmeter_pid = self._refresh_jmeter_pid(run_id, proc)
+    def _is_run_active(self, run_id: int, proc: subprocess.Popen, *, refresh_pid: bool = True) -> bool:
+        if refresh_pid:
+            jmeter_pid = self._refresh_jmeter_pid(run_id, proc)
+        else:
+            jmeter_pid = self._jmeter_pids.get(run_id)
         if jmeter_pid and is_process_alive(jmeter_pid):
             return True
         return proc.poll() is None

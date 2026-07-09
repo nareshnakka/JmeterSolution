@@ -11,10 +11,14 @@ import psutil
 from app.services.system_config import DEFAULT_RESOURCE_SAMPLE_INTERVAL_SECONDS
 
 HOST_RESOURCES_FILENAME = "host_resources.json"
+_cpu_initialized = False
 
 
 def read_host_sample() -> dict:
-    cpu = psutil.cpu_percent(interval=0.1)
+    global _cpu_initialized
+    # Non-blocking after first call — avoids 100ms sleep on every sample.
+    cpu = psutil.cpu_percent(interval=0.1 if not _cpu_initialized else None)
+    _cpu_initialized = True
     vm = psutil.virtual_memory()
     return {
         "cpu_percent": round(cpu, 1),
@@ -70,5 +74,6 @@ def append_host_sample(
         "recorded_at": datetime.utcnow().isoformat(),
     }
     samples.append(sample)
-    save_host_resources(run_dir, samples, interval_seconds)
+    if len(samples) == 1 or len(samples) % 6 == 0:
+        save_host_resources(run_dir, samples, interval_seconds)
     return sample

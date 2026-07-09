@@ -73,6 +73,7 @@ export default function LiveDashboard() {
   const refreshPollMs = refreshIntervalSeconds * 1000
   const refreshInFlightRef = useRef(false)
   const pendingRefreshRef = useRef(false)
+  const wsConnectedRef = useRef(false)
   const graphIsActiveRef = useRef(true)
   const errorsGraphIsActiveRef = useRef(false)
   const errorSearchRef = useRef('')
@@ -201,36 +202,43 @@ export default function LiveDashboard() {
     errorsGraphIsActiveRef.current = errorsGraphIsActive
   }, [errorsGraphIsActive])
 
-  const refreshDashboard = useCallback(async (options?: { showErrorsLoading?: boolean }) => {
+  const refreshDashboard = useCallback(async (options?: { showErrorsLoading?: boolean; skipMetrics?: boolean }) => {
     if (refreshInFlightRef.current) {
       pendingRefreshRef.current = true
       return
     }
     refreshInFlightRef.current = true
     try {
-      try {
-        const m = await api.getMetrics(id)
-        applyMetrics(m)
-        if (isTerminalStatus(m.status)) {
-          handleTerminalStatus(m.status)
+      if (!options?.skipMetrics) {
+        try {
+          const m = await api.getMetrics(id)
+          applyMetrics(m)
+          if (isTerminalStatus(m.status)) {
+            handleTerminalStatus(m.status)
+          }
+        } catch {
+          /* JTL may not exist yet at test start */
         }
-      } catch {
-        /* JTL may not exist yet at test start */
       }
 
       const secondary: Promise<void>[] = []
+      const skipErrorsFetch = wsConnectedRef.current && !errorSearchRef.current
 
       if (options?.showErrorsLoading) {
         setErrorsLoading(true)
       }
-      secondary.push(
-        api.getRunErrors(id, errorSearchRef.current || undefined)
-          .then((data) => setDisplayedErrors(data))
-          .catch(() => setDisplayedErrors([]))
-          .finally(() => {
-            if (options?.showErrorsLoading) setErrorsLoading(false)
-          })
-      )
+      if (!skipErrorsFetch) {
+        secondary.push(
+          api.getRunErrors(id, errorSearchRef.current || undefined)
+            .then((data) => setDisplayedErrors(data))
+            .catch(() => setDisplayedErrors([]))
+            .finally(() => {
+              if (options?.showErrorsLoading) setErrorsLoading(false)
+            })
+        )
+      } else if (options?.showErrorsLoading) {
+        setErrorsLoading(false)
+      }
 
       if (graphIsActiveRef.current) {
         const cumulative = graphMode === 'cumulative'
@@ -268,17 +276,15 @@ export default function LiveDashboard() {
   }, [id, applyMetrics, graphMode, errorsGraphMode, selectedLabels, handleTerminalStatus, isTerminalStatus])
 
   const liveStatus = metrics?.status || run?.status
-  const pollIntervalMs = useMemo(() => {
-    if (isTerminalStatus(liveStatus)) return refreshPollMs
-    return Math.min(refreshPollMs, 4000)
-  }, [liveStatus, refreshPollMs, isTerminalStatus])
+  const pollIntervalMs = refreshPollMs
 
   useEffect(() => {
     let cancelled = false
 
     async function tick(showErrorsLoading: boolean) {
       if (cancelled) return
-      await refreshDashboard({ showErrorsLoading })
+      const skipMetrics = wsConnectedRef.current && !isTerminalStatus(liveStatus)
+      await refreshDashboard({ showErrorsLoading, skipMetrics })
     }
 
     void tick(true)
@@ -287,16 +293,26 @@ export default function LiveDashboard() {
       cancelled = true
       clearInterval(interval)
     }
-  }, [pollIntervalMs, refreshDashboard])
+  }, [pollIntervalMs, refreshDashboard, liveStatus, isTerminalStatus])
 
   useEffect(() => {
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
     const ws = new WebSocket(`${proto}://${window.location.host}/ws/test-runs/${id}`)
 
+    ws.onopen = () => {
+      wsConnectedRef.current = true
+    }
+    ws.onclose = () => {
+      wsConnectedRef.current = false
+    }
+
     ws.onmessage = (ev) => {
       const msg = JSON.parse(ev.data)
       if (msg.type === 'metrics' && msg.data) {
         applyMetrics(msg.data as LiveMetrics)
+        if (!errorSearchRef.current && (msg.data as LiveMetrics).errors?.length) {
+          setDisplayedErrors((msg.data as LiveMetrics).errors)
+        }
         if (isTerminalStatus(msg.data.status)) {
           handleTerminalStatus(msg.data.status)
           void refreshDashboard()
@@ -373,7 +389,7 @@ export default function LiveDashboard() {
     return () => {
       cancelled = true
     }
-  }, [id, metrics, kindFilter, labelFilter, filteredTransactions, refreshGeneration])
+  }, [id, metrics, kindFilter, labelFilter, filteredTransactions])
 
   const sortedTransactions = useMemo(
     () => sortTransactions(filteredTransactions, sortField, sortDir),
