@@ -75,7 +75,10 @@ export default function ScenariosPage() {
     try {
       toast.info(`Starting test for "${scenarioName}"…`)
       const run = await api.startTest(scenarioId)
-      if (run.status === 'pending') {
+      if (run.status === 'failed') {
+        toast.error(run.error_message || `Failed to start test (run #${run.id})`)
+        await loadScenarios()
+      } else if (run.status === 'pending') {
         toast.success(`Test queued (run #${run.id}) — will start when the server is free`)
         await loadScenarios()
       } else {

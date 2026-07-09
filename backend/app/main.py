@@ -12,6 +12,7 @@ from starlette.staticfiles import StaticFiles
 from app.config import settings
 from app.database import SessionLocal, init_db
 from app.services.system_config import get_system_config
+from app.services.run_queue import reconcile_stale_runs, process_run_queue
 from app.routers import config, hierarchy, test_runs, websocket
 from app.services.scheduler import shutdown_scheduler, start_scheduler
 from app.version import version_full, version_label
@@ -36,6 +37,13 @@ class SPAStaticFiles(StaticFiles):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    db = SessionLocal()
+    try:
+        get_system_config(db)
+        reconcile_stale_runs(db)
+    finally:
+        db.close()
+    await process_run_queue()
     start_scheduler()
     yield
     shutdown_scheduler()

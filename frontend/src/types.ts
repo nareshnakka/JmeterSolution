@@ -100,6 +100,7 @@ export interface TestRun {
   notes?: string
   is_archived?: boolean
   archived_at?: string
+  consider_for_release?: boolean
   created_at: string
   scenario_name?: string
   release_name?: string

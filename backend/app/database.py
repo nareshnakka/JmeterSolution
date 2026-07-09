@@ -36,6 +36,10 @@ def _migrate_schema() -> None:
             alters.append("ALTER TABLE test_runs ADD COLUMN archived_at DATETIME")
         if "pre_archive_run_dir" not in cols:
             alters.append("ALTER TABLE test_runs ADD COLUMN pre_archive_run_dir VARCHAR(1024)")
+        if "consider_for_release" not in cols:
+            alters.append(
+                "ALTER TABLE test_runs ADD COLUMN consider_for_release BOOLEAN NOT NULL DEFAULT 0"
+            )
         if alters:
             with engine.begin() as conn:
                 for stmt in alters:

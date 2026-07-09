@@ -15,6 +15,7 @@ export interface TestRunColumnFilters {
   startedTo: string
   finishedFrom: string
   finishedTo: string
+  considerForRelease: string
 }
 
 export const EMPTY_RUN_FILTERS: TestRunColumnFilters = {
@@ -32,6 +33,7 @@ export const EMPTY_RUN_FILTERS: TestRunColumnFilters = {
   startedTo: '',
   finishedFrom: '',
   finishedTo: '',
+  considerForRelease: '',
 }
 
 function includes(value: string | undefined, q: string): boolean {
@@ -67,6 +69,8 @@ export function filterTestRuns(runs: TestRun[], f: TestRunColumnFilters): TestRu
     if (!inDateRange(r.scheduled_at, f.scheduledFrom, f.scheduledTo)) return false
     if (!inDateRange(r.started_at, f.startedFrom, f.startedTo)) return false
     if (!inDateRange(r.finished_at, f.finishedFrom, f.finishedTo)) return false
+    if (f.considerForRelease === 'yes' && !r.consider_for_release) return false
+    if (f.considerForRelease === 'no' && r.consider_for_release) return false
     return true
   })
 }

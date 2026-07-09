@@ -20,6 +20,8 @@ from app.schemas import (
     HostResourcesOut,
     ScheduledQueueItem,
     TestRunCreate,
+    TestRunConsiderOut,
+    TestRunConsiderRequest,
     TestRunDeleteFailure,
     TestRunDeleteOut,
     TestRunDeleteRequest,
@@ -50,6 +52,10 @@ from app.services.scenario_schedule import parse_days_of_week
 from app.utils.datetime_utils import utc_now
 
 router = APIRouter(prefix="/api/test-runs", tags=["test-runs"])
+
+TERMINAL_RUN_STATUSES = frozenset(
+    {TestRunStatus.COMPLETED, TestRunStatus.FAILED, TestRunStatus.CANCELLED}
+)
 
 MAX_LOG_CHUNK_BYTES = 512 * 1024
 
@@ -302,6 +308,31 @@ def delete_test_runs(body: TestRunDeleteRequest, db: Session = Depends(get_db)):
 
     db.commit()
     return TestRunDeleteOut(deleted=deleted, failed=failed)
+
+
+@router.post("/consider-for-release", response_model=TestRunConsiderOut)
+def set_consider_for_release(body: TestRunConsiderRequest, db: Session = Depends(get_db)):
+    updated: list[int] = []
+    failed: list[TestRunDeleteFailure] = []
+
+    for run_id in body.test_run_ids:
+        run = db.get(TestRun, run_id)
+        if not run:
+            failed.append(TestRunDeleteFailure(id=run_id, error="Test run not found"))
+            continue
+        if run.status not in TERMINAL_RUN_STATUSES:
+            failed.append(
+                TestRunDeleteFailure(
+                    id=run_id,
+                    error="Only completed, failed, or stopped runs can be marked for release",
+                )
+            )
+            continue
+        run.consider_for_release = body.consider
+        updated.append(run_id)
+
+    db.commit()
+    return TestRunConsiderOut(updated=updated, failed=failed)
 
 
 @router.post("/{run_id}/cancel")

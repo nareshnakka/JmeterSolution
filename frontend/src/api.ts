@@ -122,6 +122,15 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ test_run_ids: ids }),
     }),
+  setConsiderForRelease: (ids: number[], consider: boolean) =>
+    request<{ updated: number[]; failed: { id: number; error: string }[] }>(
+      '/test-runs/consider-for-release',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ test_run_ids: ids, consider }),
+      }
+    ),
   getTestRun: (id: number) => request<import('./types').TestRun>(`/test-runs/${id}`),
   cancelTestRun: (runId: number) =>
     request<{ ok: boolean }>(`/test-runs/${runId}/cancel`, { method: 'POST' }),

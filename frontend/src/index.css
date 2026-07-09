@@ -344,6 +344,7 @@ tfoot .aggregate-total-row:hover td {
 .badge-failed { background: var(--danger-bg); color: var(--danger); }
 .badge-cancelled { background: #ecebea; color: var(--muted); }
 .badge-pending { background: var(--warning-bg); color: #b65c02; }
+.badge-release { background: #e8f5e9; color: #2e7d32; }
 .badge-archiving { background: var(--warning-bg); color: #b65c02; }
 .badge-extracting { background: var(--info-bg); color: var(--brand-dark); }
 

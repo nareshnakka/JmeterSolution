@@ -224,6 +224,7 @@ class TestRunOut(BaseModel):
     notes: str | None
     is_archived: bool = False
     archived_at: datetime | None = None
+    consider_for_release: bool = False
     created_at: datetime
     # Enriched fields (optional)
     scenario_name: str | None = None
@@ -359,6 +360,16 @@ class TestRunDeleteFailure(BaseModel):
 
 class TestRunDeleteOut(BaseModel):
     deleted: list[int]
+    failed: list[TestRunDeleteFailure] = Field(default_factory=list)
+
+
+class TestRunConsiderRequest(BaseModel):
+    test_run_ids: list[int] = Field(..., min_length=1)
+    consider: bool = True
+
+
+class TestRunConsiderOut(BaseModel):
+    updated: list[int]
     failed: list[TestRunDeleteFailure] = Field(default_factory=list)
 
 

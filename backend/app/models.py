@@ -159,6 +159,7 @@ class TestRun(Base):
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime)
     pre_archive_run_dir: Mapped[str | None] = mapped_column(String(1024))
+    consider_for_release: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     scenario: Mapped["Scenario"] = relationship(back_populates="test_runs")

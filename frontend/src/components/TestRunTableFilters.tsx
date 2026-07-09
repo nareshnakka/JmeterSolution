@@ -24,6 +24,7 @@ interface TestRunTableFiltersProps {
   showScheduled?: boolean
   showStarted?: boolean
   showRunType?: boolean
+  showConsiderForRelease?: boolean
   showActionsColumn?: boolean
   onClear?: () => void
   hasActiveFilters?: boolean
@@ -37,6 +38,7 @@ export default function TestRunTableFilters({
   showScheduled = true,
   showStarted = true,
   showRunType = true,
+  showConsiderForRelease = false,
   showActionsColumn = false,
   onClear,
   hasActiveFilters = false,
@@ -122,6 +124,19 @@ export default function TestRunTableFilters({
           ))}
         </select>
       </th>
+      {showConsiderForRelease && (
+        <th>
+          <select
+            className="table-filter-input"
+            value={filters.considerForRelease}
+            onChange={(e) => set('considerForRelease', e.target.value)}
+          >
+            <option value="">Any</option>
+            <option value="yes">Marked</option>
+            <option value="no">Not marked</option>
+          </select>
+        </th>
+      )}
       {showScheduled && (
         <th>
           <div className="table-filter-stack">

@@ -68,7 +68,16 @@ class RunManager:
         for ws in dead:
             self.unsubscribe(run_id, ws)
 
+    def is_tracked_run_active(self, run_id: int, pid: int | None) -> bool:
+        proc = self._processes.get(run_id)
+        if proc is not None and self._is_run_active(run_id, proc):
+            return True
+        return bool(pid and is_process_alive(pid))
+
     async def start_run(self, db: Session, test_run: TestRun) -> None:
+        from app.services.run_queue import reconcile_stale_runs
+
+        reconcile_stale_runs(db)
         other_running = (
             db.query(TestRun)
             .filter(TestRun.status == TestRunStatus.RUNNING, TestRun.id != test_run.id)
@@ -79,98 +88,128 @@ class RunManager:
             db.commit()
             return
 
-        scenario = db.get(Scenario, test_run.scenario_id)
-        if not scenario:
-            raise ValueError("Scenario not found")
+        console_f = None
+        try:
+            get_system_config(db)
 
-        app = db.get(Application, scenario.application_id)
-        build = db.get(Build, app.build_id)
-        release = db.get(Release, build.release_id)
+            scenario = db.get(Scenario, test_run.scenario_id)
+            if not scenario:
+                raise ValueError("Scenario not found")
 
-        run_path = test_run_dir(release, build, app, scenario, test_run.id)
-        run_path.mkdir(parents=True, exist_ok=True)
+            app = db.get(Application, scenario.application_id)
+            if not app:
+                raise ValueError("Application not found for scenario")
+            build = db.get(Build, app.build_id)
+            if not build:
+                raise ValueError("Build not found for scenario")
+            release = db.get(Release, build.release_id)
+            if not release:
+                raise ValueError("Release not found for scenario")
 
-        migrate_legacy_dependencies(release, build, app)
+            if not settings.jmeter_bin.is_file():
+                raise FileNotFoundError(f"JMeter not found at {settings.jmeter_bin}")
 
-        jmx = resolve_scenario_jmx(release, build, app, scenario)
-        if not jmx.exists():
-            test_run.status = TestRunStatus.FAILED
-            test_run.error_message = f"JMX not found: {jmx}"
+            run_path = test_run_dir(release, build, app, scenario, test_run.id)
+            run_path.mkdir(parents=True, exist_ok=True)
+
+            migrate_legacy_dependencies(release, build, app)
+
+            jmx = resolve_scenario_jmx(release, build, app, scenario)
+            if not jmx.exists():
+                test_run.status = TestRunStatus.FAILED
+                test_run.error_message = f"JMX not found: {jmx}"
+                test_run.finished_at = datetime.utcnow()
+                db.commit()
+                from app.services.run_queue import process_run_queue
+
+                await process_run_queue()
+                return
+
+            jtl = run_path / "results.jtl"
+            log_file = run_path / "jmeter.log"
+            console_log = run_path / "jmeter-console.log"
+            scripts_dir = scenario_scripts_dir(release, build, app)
+
+            test_run.run_dir = str(run_path)
+            test_run.jtl_path = str(jtl)
+            test_run.log_path = str(log_file)
             db.commit()
-            return
 
-        jtl = run_path / "results.jtl"
-        log_file = run_path / "jmeter.log"
-        console_log = run_path / "jmeter-console.log"
-        scripts_dir = scenario_scripts_dir(release, build, app)
-        started_at = datetime.utcnow()
+            cmd = [
+                str(settings.jmeter_bin),
+                "-n",
+                "-t", str(jmx),
+                "-l", str(jtl),
+                "-j", str(log_file),
+            ]
+            cmd.extend(jmeter_cli_args(parse_jmeter_properties(scenario.jmeter_properties_json)))
+            cmd.extend([
+                "-Jjmeter.save.saveservice.output_format=csv",
+                "-Jjmeter.save.saveservice.autoflush=true",
+                "-Jjmeter.save.saveservice.response_data=true",
+                "-Jjmeter.save.saveservice.response_data.on_error=true",
+                "-Jjmeter.save.saveservice.response_data.max_size=1048576",
+                "-Jjmeter.save.saveservice.responseHeaders=true",
+                "-Jjmeter.save.saveservice.requestHeaders=true",
+                "-Jjmeter.save.saveservice.assertion_results_failure_message=true",
+                "-Jjmeter.save.saveservice.url=true",
+                "-Jjmeter.save.saveservice.sample_type=true",
+                "-Jjmeter.save.saveservice.subresults=false",
+                f"-JRUN_DIR={run_path}",
+                f"-JRUN_ID={test_run.id}",
+                f"-JJTL_PATH={jtl}",
+                f"-JJMETER_LOG={log_file}",
+            ])
 
-        test_run.run_dir = str(run_path)
-        test_run.jtl_path = str(jtl)
-        test_run.log_path = str(log_file)
-        test_run.status = TestRunStatus.RUNNING
-        test_run.started_at = started_at
-        db.commit()
-
-        agg = MetricsAggregator(
-            test_run_id=test_run.id,
-            bucket_seconds=settings.metrics_bucket_seconds,
-        )
-        self._aggregators[test_run.id] = agg
-
-        cmd = [
-            str(settings.jmeter_bin),
-            "-n",
-            "-t", str(jmx),
-            "-l", str(jtl),
-            "-j", str(log_file),
-        ]
-        cmd.extend(jmeter_cli_args(parse_jmeter_properties(scenario.jmeter_properties_json)))
-        cmd.extend([
-            "-Jjmeter.save.saveservice.output_format=csv",
-            "-Jjmeter.save.saveservice.autoflush=true",
-            "-Jjmeter.save.saveservice.response_data=true",
-            "-Jjmeter.save.saveservice.response_data.on_error=true",
-            "-Jjmeter.save.saveservice.response_data.max_size=1048576",
-            "-Jjmeter.save.saveservice.responseHeaders=true",
-            "-Jjmeter.save.saveservice.requestHeaders=true",
-            "-Jjmeter.save.saveservice.assertion_results_failure_message=true",
-            "-Jjmeter.save.saveservice.url=true",
-            "-Jjmeter.save.saveservice.sample_type=true",
-            "-Jjmeter.save.saveservice.subresults=false",
-            f"-JRUN_DIR={run_path}",
-            f"-JRUN_ID={test_run.id}",
-            f"-JJTL_PATH={jtl}",
-            f"-JJMETER_LOG={log_file}",
-        ])
-
-        # Run from the scripts folder — JMX and CSV dependencies live together
-        cwd = scripts_dir
-
-        console_f = open(console_log, "w", encoding="utf-8", errors="replace")
-        proc = subprocess.Popen(
-            cmd,
-            cwd=str(cwd),
-            stdout=console_f,
-            stderr=subprocess.STDOUT,
-            creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0,
-        )
-        self._processes[test_run.id] = proc
-        await asyncio.sleep(0.75)
-        jmeter_pid = resolve_jmeter_pid(proc.pid)
-        self._jmeter_pids[test_run.id] = jmeter_pid
-        test_run.pid = jmeter_pid
-        db.commit()
-
-        loop = asyncio.get_event_loop()
-        self._tail_tasks[test_run.id] = loop.create_task(
-            self._tail_and_monitor(
-                test_run.id, jtl, proc, run_path, scripts_dir, started_at, console_f
+            cwd = scripts_dir
+            console_f = open(console_log, "w", encoding="utf-8", errors="replace")
+            proc = subprocess.Popen(
+                cmd,
+                cwd=str(cwd),
+                stdout=console_f,
+                stderr=subprocess.STDOUT,
+                creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0,
             )
-        )
-        self._resource_tasks[test_run.id] = loop.create_task(
-            self._sample_host_resources(test_run.id, run_path, started_at, proc)
-        )
+            self._processes[test_run.id] = proc
+            await asyncio.sleep(0.75)
+            jmeter_pid = resolve_jmeter_pid(proc.pid)
+            self._jmeter_pids[test_run.id] = jmeter_pid
+
+            started_at = datetime.utcnow()
+            test_run.status = TestRunStatus.RUNNING
+            test_run.started_at = started_at
+            test_run.pid = jmeter_pid
+            db.commit()
+
+            agg = MetricsAggregator(
+                test_run_id=test_run.id,
+                bucket_seconds=settings.metrics_bucket_seconds,
+            )
+            self._aggregators[test_run.id] = agg
+
+            loop = asyncio.get_event_loop()
+            self._tail_tasks[test_run.id] = loop.create_task(
+                self._tail_and_monitor(
+                    test_run.id, jtl, proc, run_path, scripts_dir, started_at, console_f
+                )
+            )
+            self._resource_tasks[test_run.id] = loop.create_task(
+                self._sample_host_resources(test_run.id, run_path, started_at, proc)
+            )
+        except Exception as exc:
+            if console_f:
+                try:
+                    console_f.close()
+                except Exception:
+                    pass
+            test_run.status = TestRunStatus.FAILED
+            test_run.error_message = str(exc)[:2000]
+            test_run.finished_at = datetime.utcnow()
+            db.commit()
+            self.cleanup_run(test_run.id)
+            from app.services.run_queue import process_run_queue
+
+            await process_run_queue()
 
     async def _sample_host_resources(
         self,

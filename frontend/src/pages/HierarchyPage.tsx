@@ -97,7 +97,9 @@ export default function HierarchyPage() {
     try {
       toast.info(`Starting test for "${scenarioName}"…`)
       const run = await api.startTest(scenarioId)
-      if (run.status === 'pending') {
+      if (run.status === 'failed') {
+        toast.error(run.error_message || `Failed to start test (run #${run.id})`)
+      } else if (run.status === 'pending') {
         toast.success(`Test queued (run #${run.id}) — view the Run Queue to manage`)
       } else {
         toast.success(`Test started (run #${run.id})`)

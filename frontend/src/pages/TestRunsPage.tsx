@@ -24,6 +24,7 @@ export default function TestRunsPage() {
   const [columnFilters, setColumnFilters] = useState<TestRunColumnFilters>(EMPTY_RUN_FILTERS)
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [deleting, setDeleting] = useState(false)
+  const [updatingRelease, setUpdatingRelease] = useState(false)
 
   const loadRuns = useCallback(() => {
     api.listTestRuns().then(setRuns).catch(console.error)
@@ -48,6 +49,25 @@ export default function TestRunsPage() {
       }).length,
     [selected, runs]
   )
+
+  const releaseEligibleSelected = useMemo(
+    () =>
+      Array.from(selected).filter((id) => {
+        const run = runs.find((r) => r.id === id)
+        return run && isComparableTestRun(run.status)
+      }),
+    [selected, runs]
+  )
+
+  const canMarkForRelease = releaseEligibleSelected.some((id) => {
+    const run = runs.find((r) => r.id === id)
+    return run && !run.consider_for_release
+  })
+
+  const canUnmarkForRelease = releaseEligibleSelected.some((id) => {
+    const run = runs.find((r) => r.id === id)
+    return run?.consider_for_release
+  })
 
   function toggle(id: number) {
     setSelected((prev) => {
@@ -84,6 +104,37 @@ export default function TestRunsPage() {
       return
     }
     navigate('/compare', { state: { selectedRunIds: ids } })
+  }
+
+  async function updateConsiderForRelease(consider: boolean) {
+    const ids = releaseEligibleSelected.filter((id) => {
+      const run = runs.find((r) => r.id === id)
+      if (!run) return false
+      return consider ? !run.consider_for_release : run.consider_for_release
+    })
+    if (ids.length === 0 || updatingRelease) return
+
+    setUpdatingRelease(true)
+    try {
+      const result = await api.setConsiderForRelease(ids, consider)
+      loadRuns()
+      if (result.updated.length > 0) {
+        toast.success(
+          consider
+            ? `Marked ${result.updated.length} run(s) for release consideration`
+            : `Removed ${result.updated.length} run(s) from release consideration`
+        )
+      }
+      if (result.failed.length > 0) {
+        toast.error(
+          `Could not update ${result.failed.length} run(s): ${result.failed.map((f) => `#${f.id}`).join(', ')}`
+        )
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to update release consideration')
+    } finally {
+      setUpdatingRelease(false)
+    }
   }
 
   async function deleteSelected() {
@@ -146,6 +197,24 @@ export default function TestRunsPage() {
         </button>
         <button
           type="button"
+          className="btn btn-secondary"
+          disabled={!canMarkForRelease || updatingRelease}
+          onClick={() => void updateConsiderForRelease(true)}
+          title="Mark completed, failed, or stopped runs for release consideration"
+        >
+          {updatingRelease ? 'Updating…' : 'Mark for Release'}
+        </button>
+        <button
+          type="button"
+          className="btn btn-secondary"
+          disabled={!canUnmarkForRelease || updatingRelease}
+          onClick={() => void updateConsiderForRelease(false)}
+          title="Remove selected runs from release consideration"
+        >
+          Unmark for Release
+        </button>
+        <button
+          type="button"
           className="btn btn-danger"
           disabled={selected.size === 0 || deleting}
           onClick={deleteSelected}
@@ -178,6 +247,7 @@ export default function TestRunsPage() {
                 <th>Tags</th>
                 <th>Type</th>
                 <th>Status</th>
+                <th>For Release</th>
                 <th>Scheduled</th>
                 <th>Started</th>
                 <th>Actions</th>
@@ -185,6 +255,7 @@ export default function TestRunsPage() {
               <TestRunTableFilters
                 filters={columnFilters}
                 onChange={setColumnFilters}
+                showConsiderForRelease
                 showActionsColumn
                 onClear={() => setColumnFilters(EMPTY_RUN_FILTERS)}
                 hasActiveFilters={hasActiveRunFilters(columnFilters)}
@@ -214,6 +285,15 @@ export default function TestRunsPage() {
                   <td><RunTags tags={r.scenario_tags} /></td>
                   <td>{r.run_type}</td>
                   <td>{statusBadge(r.status)}</td>
+                  <td>
+                    {r.consider_for_release ? (
+                      <span className="badge badge-release" title="Consider for release">
+                        Yes
+                      </span>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
                   <td>{r.scheduled_at ? new Date(r.scheduled_at).toLocaleString() : '—'}</td>
                   <td>{r.started_at ? new Date(r.started_at).toLocaleString() : '—'}</td>
                   <td onClick={(e) => e.stopPropagation()}>
