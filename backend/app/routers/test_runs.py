@@ -423,6 +423,30 @@ def get_run_metrics(run_id: int, db: Session = Depends(get_db)):
     return _metrics_snapshot_for_run(run)
 
 
+@router.get("/{run_id}/aggregate-total", response_model=TransactionMetric)
+def get_aggregate_total(
+    run_id: int,
+    kind: str = Query(default="all", pattern="^(all|transaction|request)$"),
+    label: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    run = db.get(TestRun, run_id)
+    if not run:
+        raise HTTPException(404, "Test run not found")
+    agg = _aggregator_for_run(run)
+    if agg is None:
+        raise HTTPException(404, "No metrics available yet")
+    if run.status in (TestRunStatus.COMPLETED, TestRunStatus.FAILED, TestRunStatus.CANCELLED):
+        agg.status = run.status
+    elif run.status == TestRunStatus.RUNNING:
+        agg.status = TestRunStatus.RUNNING
+
+    total = agg.transaction_totals(label_filter=label, kind_filter=kind)
+    if total is None:
+        raise HTTPException(404, "No samples match the current filters")
+    return total
+
+
 @router.get("/{run_id}/errors/{sample_index}", response_model=ErrorDetailOut)
 def get_run_error_detail(run_id: int, sample_index: int, db: Session = Depends(get_db)):
     run = db.get(TestRun, run_id)

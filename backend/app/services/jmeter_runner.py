@@ -184,6 +184,7 @@ class RunManager:
             agg = MetricsAggregator(
                 test_run_id=test_run.id,
                 bucket_seconds=settings.metrics_bucket_seconds,
+                timeline_bucket_seconds=1,
             )
             self._aggregators[test_run.id] = agg
 

@@ -8,11 +8,12 @@ import {
   ActiveUsersChart,
   ErrorsOverTimeChart,
   ResponseTimeChart,
+  ThroughputChart,
 } from '../components/live/LiveDashboardCharts'
 import { useToast } from '../components/Toast'
-import type { ErrorSample, LiveMetrics, TestRun, TransactionMetric } from '../types'
+import type { ErrorSample, LiveMetrics, TestRun, TransactionMetric, TransactionTotals } from '../types'
 import { timelineScaleForSeconds } from '../utils/timeline'
-import { computeTransactionTotals } from '../utils/transactionTotals'
+import { computeTransactionTotals, metricToTotals } from '../utils/transactionTotals'
 import { filterTransactionsByKind } from '../utils/transactionKind'
 import { defaultSortDir, sortTransactions, type AggregateSortField, type SortDir } from '../utils/sortTransactions'
 import type { AggregateKindFilter } from '../types'
@@ -67,6 +68,7 @@ export default function LiveDashboard() {
   const [viewingError, setViewingError] = useState<ErrorSample | null>(null)
   const [refreshIntervalSeconds, setRefreshIntervalSeconds] = useState(DEFAULT_REFRESH_SECONDS)
   const [refreshGeneration, setRefreshGeneration] = useState(0)
+  const [transactionTotals, setTransactionTotals] = useState<TransactionTotals | null>(null)
 
   const refreshPollMs = refreshIntervalSeconds * 1000
   const refreshInFlightRef = useRef(false)
@@ -350,10 +352,28 @@ export default function LiveDashboard() {
     return rows.filter((t) => t.label.toLowerCase().includes(q))
   }, [metrics, labelFilter, kindFilter])
 
-  const transactionTotals = useMemo(
-    () => computeTransactionTotals(filteredTransactions),
-    [filteredTransactions]
-  )
+  useEffect(() => {
+    if (!metrics || filteredTransactions.length === 0) {
+      setTransactionTotals(null)
+      return
+    }
+    let cancelled = false
+    void api
+      .getAggregateTotal(id, kindFilter, labelFilter.trim() || undefined)
+      .then((total) => {
+        if (!cancelled) setTransactionTotals(metricToTotals(total))
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setTransactionTotals(
+            computeTransactionTotals(filteredTransactions, metrics.elapsed_seconds)
+          )
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [id, metrics, kindFilter, labelFilter, filteredTransactions, refreshGeneration])
 
   const sortedTransactions = useMemo(
     () => sortTransactions(filteredTransactions, sortField, sortDir),
@@ -370,6 +390,7 @@ export default function LiveDashboard() {
   }, [sortField])
 
   const usersChartData = metrics?.active_users_series ?? []
+  const throughputChartData = metrics?.throughput_series ?? []
 
   const elapsedDisplay = useMemo(() => {
     if (!metrics) return '—'
@@ -473,9 +494,17 @@ export default function LiveDashboard() {
       <div className="grid-2">
         <ActiveUsersChart
           data={usersChartData}
+          elapsedSeconds={metrics?.elapsed_seconds}
           refreshIntervalSeconds={refreshIntervalSeconds}
         />
-        <ResponseTimeChart
+        <ThroughputChart
+          data={throughputChartData}
+          elapsedSeconds={metrics?.elapsed_seconds}
+          refreshIntervalSeconds={refreshIntervalSeconds}
+        />
+      </div>
+
+      <ResponseTimeChart
           graphData={graphData}
           graphMode={graphMode}
           selectedLabels={selectedLabels}
@@ -484,8 +513,7 @@ export default function LiveDashboard() {
           onClearSelection={clearSelection}
           onGraphSelected={() => void loadGraph(false)}
           onCumulativeGraph={() => void loadGraph(true)}
-        />
-      </div>
+      />
 
       <ErrorsOverTimeChart
         errorsGraphData={errorsGraphData}

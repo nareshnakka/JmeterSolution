@@ -97,11 +97,11 @@ def _sample_kind(sample: Sample) -> str:
 class MetricsAggregator:
     test_run_id: int
     bucket_seconds: int = 5
+    timeline_bucket_seconds: int = 1
     start_wall_time: float = field(default_factory=time.time)
 
     samples: list[Sample] = field(default_factory=list)
     errors: list[ErrorSample] = field(default_factory=list)
-    active_users_series: list[dict[str, Any]] = field(default_factory=list)
     label_time_series: dict[str, list[dict[str, Any]]] = field(default_factory=lambda: defaultdict(list))
     label_error_series: dict[str, list[dict[str, Any]]] = field(default_factory=lambda: defaultdict(list))
     all_error_series: list[dict[str, Any]] = field(default_factory=list)
@@ -109,6 +109,8 @@ class MetricsAggregator:
     status: TestRunStatus = TestRunStatus.RUNNING
     _last_bucket: int = -1
     _last_all_threads: int = 0
+    _users_by_timeline_bucket: dict[int, int] = field(default_factory=dict)
+    _throughput_by_timeline_bucket: dict[int, int] = field(default_factory=dict)
     _header_map: dict[str, int] = field(default_factory=_default_header_map)
 
     def ingest_line(self, line: str) -> None:
@@ -154,14 +156,13 @@ class MetricsAggregator:
         if elapsed < 0:
             elapsed = time.time() - self.start_wall_time
         bucket = int(elapsed // self.bucket_seconds)
-        if bucket > self._last_bucket:
-            self.active_users_series.append(
-                {"bucket": bucket, "t": self._bucket_time(bucket), "users": sample.all_threads}
-            )
-            self._last_bucket = bucket
-        elif self.active_users_series:
-            self.active_users_series[-1]["users"] = max(
-                self.active_users_series[-1]["users"], sample.all_threads
+        timeline_bucket = int(elapsed // self.timeline_bucket_seconds)
+
+        prev_users = self._users_by_timeline_bucket.get(timeline_bucket, 0)
+        self._users_by_timeline_bucket[timeline_bucket] = max(prev_users, sample.all_threads)
+        if sample.success:
+            self._throughput_by_timeline_bucket[timeline_bucket] = (
+                self._throughput_by_timeline_bucket.get(timeline_bucket, 0) + 1
             )
 
         series = self.label_time_series[sample.label]
@@ -178,6 +179,50 @@ class MetricsAggregator:
     def _bucket_time(self, bucket: int) -> float:
         return round(bucket * self.bucket_seconds, 1)
 
+    def _timeline_time(self, bucket: int) -> float:
+        return round(bucket * self.timeline_bucket_seconds, 1)
+
+    def _timeline_max_bucket(self) -> int:
+        buckets: list[int] = []
+        if self._users_by_timeline_bucket:
+            buckets.append(max(self._users_by_timeline_bucket))
+        if self._throughput_by_timeline_bucket:
+            buckets.append(max(self._throughput_by_timeline_bucket))
+        if not buckets:
+            return 0
+        max_bucket = max(buckets)
+        if self.status == TestRunStatus.RUNNING:
+            current = int(self._elapsed_seconds() // self.timeline_bucket_seconds)
+            max_bucket = max(max_bucket, current)
+        return max_bucket
+
+    def _filled_active_users_series(self) -> list[dict[str, Any]]:
+        """BlazeMeter-style virtual users: max concurrent users per 1s bucket, step-held."""
+        if not self._users_by_timeline_bucket:
+            return []
+
+        max_bucket = self._timeline_max_bucket()
+        result: list[dict[str, Any]] = []
+        last_users = 0
+        for bucket in range(0, max_bucket + 1):
+            if bucket in self._users_by_timeline_bucket:
+                last_users = self._users_by_timeline_bucket[bucket]
+            result.append({"t": self._timeline_time(bucket), "users": last_users})
+        return result
+
+    def _filled_throughput_series(self) -> list[dict[str, Any]]:
+        """Hits per second per timeline bucket (successful samples)."""
+        if not self._throughput_by_timeline_bucket and not self.samples:
+            return []
+
+        max_bucket = self._timeline_max_bucket()
+        result: list[dict[str, Any]] = []
+        for bucket in range(0, max_bucket + 1):
+            count = self._throughput_by_timeline_bucket.get(bucket, 0)
+            hits_per_sec = round(count / self.timeline_bucket_seconds, 2)
+            result.append({"t": self._timeline_time(bucket), "hits_per_sec": hits_per_sec})
+        return result
+
     def _append_error_bucket(
         self, series: list[dict[str, Any]], bucket: int, elapsed: float
     ) -> None:
@@ -189,67 +234,94 @@ class MetricsAggregator:
         series.append({"bucket": bucket, "t": self._bucket_time(bucket), "errors": 1})
         series.sort(key=lambda e: e.get("bucket", 0))
 
+    def _elapsed_seconds(self) -> float:
+        if not self.samples:
+            return 0.001
+        if self.status == TestRunStatus.RUNNING:
+            return max(time.time() - self.start_wall_time, 0.001)
+        last_ts = max(s.timestamp_ms for s in self.samples) / 1000.0
+        return max(last_ts - self.start_wall_time, 0.001)
+
+    def _collect_samples_for_aggregate(
+        self,
+        label_filter: str | None = None,
+        kind_filter: str | None = None,
+    ) -> list[Sample]:
+        """Collect raw samples using the same rules as the aggregate report filters."""
+        grouped: dict[tuple[str, str], list[Sample]] = defaultdict(list)
+        label_q = label_filter.strip().lower() if label_filter else ""
+
+        for s in self.samples:
+            if label_q and label_q not in s.label.lower():
+                continue
+            grouped[(s.label, _sample_kind(s))].append(s)
+
+        transaction_labels = {label for (label, kind) in grouped if kind == "transaction"}
+        selected: list[Sample] = []
+        for (label, kind), items in grouped.items():
+            if kind == "request" and label in transaction_labels:
+                continue
+            if kind_filter and kind_filter != "all" and kind != kind_filter:
+                continue
+            selected.extend(items)
+        return selected
+
+    def _metric_from_samples(self, items: list[Sample], elapsed_sec: float) -> TransactionMetric:
+        elapsed_vals = [i.elapsed_ms for i in items]
+        errors = sum(1 for i in items if not i.success)
+        n = len(items)
+        sorted_vals = sorted(elapsed_vals)
+        return TransactionMetric(
+            label="TOTAL",
+            kind="transaction",
+            samples=n,
+            errors=errors,
+            error_pct=round(100.0 * errors / n, 2) if n else 0,
+            avg_ms=round(statistics.mean(elapsed_vals), 2) if n else 0,
+            min_ms=round(min(elapsed_vals), 2) if n else 0,
+            max_ms=round(max(elapsed_vals), 2) if n else 0,
+            median_ms=round(statistics.median(sorted_vals), 2) if n else 0,
+            p90_ms=round(_percentile(sorted_vals, 90), 2) if n else 0,
+            p95_ms=round(_percentile(sorted_vals, 95), 2) if n else 0,
+            throughput=round(n / elapsed_sec, 2) if elapsed_sec > 0 else 0,
+        )
+
+    def transaction_totals(
+        self,
+        label_filter: str | None = None,
+        kind_filter: str | None = None,
+    ) -> TransactionMetric | None:
+        """Compute TOTAL row from pooled samples (correct percentiles and averages)."""
+        items = self._collect_samples_for_aggregate(label_filter, kind_filter)
+        if not items:
+            return None
+        return self._metric_from_samples(items, self._elapsed_seconds())
+
     def transaction_metrics(self, label_filter: str | None = None) -> list[TransactionMetric]:
         grouped: dict[tuple[str, str], list[Sample]] = defaultdict(list)
+        label_q = label_filter.strip().lower() if label_filter else ""
+
         for s in self.samples:
-            if label_filter and label_filter not in s.label:
+            if label_q and label_q not in s.label.lower():
                 continue
             grouped[(s.label, _sample_kind(s))].append(s)
 
         transaction_labels = {label for (label, kind) in grouped if kind == "transaction"}
 
         results: list[TransactionMetric] = []
-        elapsed_sec = max(time.time() - self.start_wall_time, 0.001)
+        elapsed_sec = self._elapsed_seconds()
         for (label, kind), items in sorted(grouped.items()):
             # Skip request aggregates that share a label with a transaction controller row.
             if kind == "request" and label in transaction_labels:
                 continue
-            elapsed_vals = [i.elapsed_ms for i in items]
-            errors = sum(1 for i in items if not i.success)
-            n = len(items)
-            sorted_vals = sorted(elapsed_vals)
-            results.append(
-                TransactionMetric(
-                    label=label,
-                    kind=kind,
-                    samples=n,
-                    errors=errors,
-                    error_pct=round(100.0 * errors / n, 2) if n else 0,
-                    avg_ms=round(statistics.mean(elapsed_vals), 2) if n else 0,
-                    min_ms=round(min(elapsed_vals), 2) if n else 0,
-                    max_ms=round(max(elapsed_vals), 2) if n else 0,
-                    median_ms=round(statistics.median(sorted_vals), 2) if n else 0,
-                    p90_ms=round(_percentile(sorted_vals, 90), 2) if n else 0,
-                    p95_ms=round(_percentile(sorted_vals, 95), 2) if n else 0,
-                    throughput=round(n / elapsed_sec, 2),
-                )
-            )
+            metric = self._metric_from_samples(items, elapsed_sec)
+            metric.label = label
+            metric.kind = kind
+            results.append(metric)
         return results
 
-    def _filled_active_users_series(self) -> list[dict[str, Any]]:
-        """Return bucket-aligned active-user points with gaps filled for a linear timeline."""
-        if not self.active_users_series:
-            return []
-
-        by_bucket: dict[int, int] = {}
-        for entry in self.active_users_series:
-            bucket = entry.get("bucket")
-            if bucket is None:
-                bucket = int(round(float(entry.get("t", 0)) / self.bucket_seconds))
-            users = int(entry.get("users", 0))
-            by_bucket[bucket] = max(by_bucket.get(bucket, 0), users)
-
-        max_bucket = max(by_bucket)
-        result: list[dict[str, Any]] = []
-        last_users = 0
-        for bucket in range(0, max_bucket + 1):
-            if bucket in by_bucket:
-                last_users = by_bucket[bucket]
-            result.append({"t": self._bucket_time(bucket), "users": last_users})
-        return result
-
     def snapshot(self) -> LiveMetricsSnapshot:
-        elapsed = time.time() - self.start_wall_time
+        elapsed = self._elapsed_seconds()
         total_errors = sum(1 for s in self.samples if not s.success)
         return LiveMetricsSnapshot(
             test_run_id=self.test_run_id,
@@ -261,6 +333,7 @@ class MetricsAggregator:
             transactions=self.transaction_metrics(),
             errors=self.errors[-50:],
             active_users_series=self._filled_active_users_series(),
+            throughput_series=self._filled_throughput_series(),
         )
 
     def label_graph(
@@ -366,6 +439,10 @@ def _sample_from_row(row: list[str], header: dict[str, int], sample_index: int) 
         return None
     try:
         all_threads_raw = _col(row, header, "allThreads", "0")
+        try:
+            all_threads = int(float(all_threads_raw or 0))
+        except ValueError:
+            all_threads = 0
         return Sample(
             sample_index=sample_index,
             timestamp_ms=int(_col(row, header, "timeStamp", "0")),
@@ -376,7 +453,7 @@ def _sample_from_row(row: list[str], header: dict[str, int], sample_index: int) 
             thread_name=_col(row, header, "threadName"),
             success=_col(row, header, "success", "false").lower() == "true",
             failure_message=_col(row, header, "failureMessage"),
-            all_threads=int(all_threads_raw) if all_threads_raw.isdigit() else 0,
+            all_threads=all_threads,
             url=_col(row, header, "URL"),
             data_type=_col(row, header, "dataType"),
             sample_type=_col(row, header, "sampleType"),

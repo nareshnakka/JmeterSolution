@@ -206,6 +206,19 @@ export interface TransactionMetric {
   throughput: number
 }
 
+export interface TransactionTotals {
+  samples: number
+  errors: number
+  error_pct: number
+  avg_ms: number
+  min_ms: number
+  max_ms: number
+  median_ms: number
+  p90_ms: number
+  p95_ms: number
+  throughput: number
+}
+
 export interface ErrorSample {
   sample_index: number
   timestamp: number
@@ -243,6 +256,7 @@ export interface LiveMetrics {
   transactions: TransactionMetric[]
   errors: ErrorSample[]
   active_users_series: { t: number; users: number }[]
+  throughput_series: { t: number; hits_per_sec: number }[]
 }
 
 export interface TestRunLogs {

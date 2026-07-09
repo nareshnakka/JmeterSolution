@@ -10,4 +10,5 @@ export const chartTheme = {
   cpu: '#0176D3',
   memory: '#2E844A',
   users: '#0176D3',
+  throughput: '#2E844A',
 }

@@ -162,6 +162,13 @@ export const api = {
       body: JSON.stringify({ scenario_id: scenarioId, scheduled_at: scheduledAt, notes }),
     }),
   getMetrics: (runId: number) => request<import('./types').LiveMetrics>(`/test-runs/${runId}/metrics`),
+  getAggregateTotal: (runId: number, kind: string = 'all', label?: string) => {
+    const params = new URLSearchParams({ kind })
+    if (label?.trim()) params.set('label', label.trim())
+    return request<import('./types').TransactionMetric>(
+      `/test-runs/${runId}/aggregate-total?${params}`
+    )
+  },
   getRunResources: (runId: number) =>
     request<import('./types').HostResources>(`/test-runs/${runId}/resources`),
   getRunErrors: (runId: number, search?: string, limit = 200) => {

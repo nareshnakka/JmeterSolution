@@ -1,25 +1,29 @@
-import type { TransactionMetric } from '../types'
-
-export interface TransactionTotals {
-  samples: number
-  errors: number
-  error_pct: number
-  avg_ms: number
-  min_ms: number
-  max_ms: number
-  median_ms: number
-  p90_ms: number
-  p95_ms: number
-  throughput: number
-}
+import type { TransactionMetric, TransactionTotals } from '../types'
 
 function round2(value: number): number {
   return Math.round(value * 100) / 100
 }
 
-/** Aggregate per-label metrics into a TOTAL row (weighted by sample count). */
+/** Map server-computed TOTAL metric to table footer fields. */
+export function metricToTotals(metric: TransactionMetric): TransactionTotals {
+  return {
+    samples: metric.samples,
+    errors: metric.errors,
+    error_pct: metric.error_pct,
+    avg_ms: metric.avg_ms,
+    min_ms: metric.min_ms,
+    max_ms: metric.max_ms,
+    median_ms: metric.median_ms,
+    p90_ms: metric.p90_ms,
+    p95_ms: metric.p95_ms,
+    throughput: metric.throughput,
+  }
+}
+
+/** Fallback when the aggregate-total API is unavailable. */
 export function computeTransactionTotals(
-  transactions: TransactionMetric[]
+  transactions: TransactionMetric[],
+  elapsedSeconds?: number
 ): TransactionTotals | null {
   if (transactions.length === 0) return null
 
@@ -29,6 +33,11 @@ export function computeTransactionTotals(
   const errors = transactions.reduce((sum, t) => sum + t.errors, 0)
   const weighted = (pick: (t: TransactionMetric) => number) =>
     transactions.reduce((sum, t) => sum + pick(t) * t.samples, 0) / samples
+
+  const throughput =
+    elapsedSeconds && elapsedSeconds > 0
+      ? round2(samples / elapsedSeconds)
+      : round2(transactions.reduce((sum, t) => sum + t.throughput, 0))
 
   return {
     samples,
@@ -40,6 +49,6 @@ export function computeTransactionTotals(
     median_ms: round2(weighted((t) => t.median_ms)),
     p90_ms: round2(weighted((t) => t.p90_ms)),
     p95_ms: round2(weighted((t) => t.p95_ms)),
-    throughput: round2(transactions.reduce((sum, t) => sum + t.throughput, 0)),
+    throughput,
   }
 }

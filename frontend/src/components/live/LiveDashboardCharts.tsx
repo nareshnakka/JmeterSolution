@@ -1,35 +1,42 @@
 import { memo, useMemo } from 'react'
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+  LineChart, Line, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts'
 import { downsamplePoints, downsampleSeries } from '../../utils/chartDownsample'
 import { maxTimeFromPoints, timelineScaleForSeconds } from '../../utils/timeline'
 import { chartTheme } from '../../utils/chartTheme'
 
 type UsersPoint = { t: number; users: number }
+type ThroughputPoint = { t: number; hits_per_sec: number }
 type GraphSeries = { label: string; points: { t: number; avg_ms: number }[] }
 type ErrorGraphSeries = { label: string; points: { t: number; errors: number }[] }
 
+function useTimelineScale(points: { t: number }[], elapsedSeconds?: number) {
+  return useMemo(() => {
+    const maxT = Math.max(maxTimeFromPoints(points), elapsedSeconds ?? 0)
+    return timelineScaleForSeconds(maxT)
+  }, [points, elapsedSeconds])
+}
+
 interface ActiveUsersChartProps {
   data: UsersPoint[]
+  elapsedSeconds?: number
   refreshIntervalSeconds: number
 }
 
 export const ActiveUsersChart = memo(function ActiveUsersChart({
   data,
+  elapsedSeconds,
   refreshIntervalSeconds,
 }: ActiveUsersChartProps) {
   const chartData = useMemo(() => downsamplePoints(data), [data])
-  const timeline = useMemo(
-    () => timelineScaleForSeconds(maxTimeFromPoints(chartData)),
-    [chartData]
-  )
+  const timeline = useTimelineScale(chartData, elapsedSeconds)
 
   return (
     <div className="card">
-      <h2>Active Users (live)</h2>
+      <h2>Active Users</h2>
       <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '-0.25rem' }}>
-        Refreshes every {refreshIntervalSeconds}s
+        Virtual users over time (1s intervals) · refreshes every {refreshIntervalSeconds}s
       </p>
       <div className="chart-wrap">
         {chartData.length > 0 ? (
@@ -39,22 +46,106 @@ export const ActiveUsersChart = memo(function ActiveUsersChart({
               <XAxis
                 dataKey="t"
                 type="number"
-                domain={['dataMin', 'dataMax']}
+                domain={[0, elapsedSeconds && elapsedSeconds > 0 ? elapsedSeconds : 'dataMax']}
                 stroke={chartTheme.axis}
                 tickFormatter={(t) => timeline.formatValue(Number(t))}
                 label={{ value: timeline.axisLabel, position: 'insideBottom', offset: -5 }}
               />
-              <YAxis stroke={chartTheme.axis} allowDecimals={false} />
+              <YAxis
+                stroke={chartTheme.axis}
+                allowDecimals={false}
+                label={{ value: 'Users', angle: -90, position: 'insideLeft' }}
+              />
               <Tooltip
                 contentStyle={{ background: chartTheme.tooltipBg, border: `1px solid ${chartTheme.tooltipBorder}` }}
                 labelFormatter={(label) => timeline.formatWithUnit(Number(label))}
+                formatter={(value: number) => [value, 'Active Users']}
+              />
+              <Area
+                type="stepAfter"
+                dataKey="users"
+                stroke="none"
+                fill={chartTheme.users}
+                fillOpacity={0.12}
+                isAnimationActive={false}
+              />
+              <Line
+                type="stepAfter"
+                dataKey="users"
+                stroke={chartTheme.users}
+                strokeWidth={2}
+                dot={false}
+                name="Active Users"
+                isAnimationActive={false}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        ) : (
+          <p className="empty">Waiting for data…</p>
+        )}
+      </div>
+    </div>
+  )
+})
+
+interface ThroughputChartProps {
+  data: ThroughputPoint[]
+  elapsedSeconds?: number
+  refreshIntervalSeconds: number
+}
+
+export const ThroughputChart = memo(function ThroughputChart({
+  data,
+  elapsedSeconds,
+  refreshIntervalSeconds,
+}: ThroughputChartProps) {
+  const chartData = useMemo(() => downsamplePoints(data), [data])
+  const timeline = useTimelineScale(chartData, elapsedSeconds)
+
+  return (
+    <div className="card">
+      <h2>Throughput (Hits/s)</h2>
+      <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '-0.25rem' }}>
+        Successful hits per second · refreshes every {refreshIntervalSeconds}s
+      </p>
+      <div className="chart-wrap">
+        {chartData.length > 0 ? (
+          <ResponsiveContainer>
+            <LineChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
+              <XAxis
+                dataKey="t"
+                type="number"
+                domain={[0, elapsedSeconds && elapsedSeconds > 0 ? elapsedSeconds : 'dataMax']}
+                stroke={chartTheme.axis}
+                tickFormatter={(t) => timeline.formatValue(Number(t))}
+                label={{ value: timeline.axisLabel, position: 'insideBottom', offset: -5 }}
+              />
+              <YAxis
+                stroke={chartTheme.axis}
+                allowDecimals
+                label={{ value: 'Hits/s', angle: -90, position: 'insideLeft' }}
+              />
+              <Tooltip
+                contentStyle={{ background: chartTheme.tooltipBg, border: `1px solid ${chartTheme.tooltipBorder}` }}
+                labelFormatter={(label) => timeline.formatWithUnit(Number(label))}
+                formatter={(value: number) => [`${value}`, 'Hits/s']}
+              />
+              <Area
+                type="monotone"
+                dataKey="hits_per_sec"
+                stroke="none"
+                fill={chartTheme.throughput}
+                fillOpacity={0.12}
+                isAnimationActive={false}
               />
               <Line
                 type="monotone"
-                dataKey="users"
-                stroke={chartTheme.users}
+                dataKey="hits_per_sec"
+                stroke={chartTheme.throughput}
+                strokeWidth={2}
                 dot={false}
-                name="Active Users"
+                name="Hits/s"
                 isAnimationActive={false}
               />
             </LineChart>
