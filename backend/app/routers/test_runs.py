@@ -49,6 +49,7 @@ from app.services.run_artifacts import (
 )
 from app.services.scheduler import schedule_test_run, unschedule_test_run
 from app.services.scenario_schedule import parse_days_of_week
+from app.services.run_queue import process_run_queue, try_start_or_queue
 from app.utils.datetime_utils import utc_now
 
 router = APIRouter(prefix="/api/test-runs", tags=["test-runs"])
@@ -349,8 +350,6 @@ async def cancel_run(run_id: int, db: Session = Depends(get_db)):
     run.status = TestRunStatus.CANCELLED
     run.finished_at = datetime.utcnow()
     db.commit()
-
-    from app.services.run_queue import process_run_queue
 
     await process_run_queue()
     return {"ok": True}
