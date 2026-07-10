@@ -32,6 +32,12 @@ export default function ConfigPage() {
     auto_archive_enabled: true,
     resource_sample_interval_seconds: 10,
     live_dashboard_refresh_interval_seconds: 10,
+    aggregate_total_avg_title: 'Total Avg',
+    aggregate_total_avg_filter: '',
+    aggregate_load_avg_title: 'Load Avg',
+    aggregate_load_avg_filter: '_L_',
+    aggregate_submit_avg_title: 'Submit Avg',
+    aggregate_submit_avg_filter: '_S_',
   })
   const [saving, setSaving] = useState(false)
   const [runs, setRuns] = useState<ArchiveRunItem[]>([])
@@ -49,6 +55,12 @@ export default function ConfigPage() {
       auto_archive_enabled: data.auto_archive_enabled,
       resource_sample_interval_seconds: data.resource_sample_interval_seconds,
       live_dashboard_refresh_interval_seconds: data.live_dashboard_refresh_interval_seconds,
+      aggregate_total_avg_title: data.aggregate_total_avg_title ?? 'Total Avg',
+      aggregate_total_avg_filter: data.aggregate_total_avg_filter ?? '',
+      aggregate_load_avg_title: data.aggregate_load_avg_title ?? 'Load Avg',
+      aggregate_load_avg_filter: data.aggregate_load_avg_filter ?? '_L_',
+      aggregate_submit_avg_title: data.aggregate_submit_avg_title ?? 'Submit Avg',
+      aggregate_submit_avg_filter: data.aggregate_submit_avg_filter ?? '_S_',
     })
   }, [])
 
@@ -226,6 +238,70 @@ export default function ConfigPage() {
               <span className="config-hint">
                 Default: 10 seconds. How often metrics and graphs refresh on the Live Dashboard (5–300 seconds).
               </span>
+            </div>
+          </div>
+          <div className="config-form-section">
+            <h3>Aggregate Report Summary</h3>
+            <p className="config-section-hint">
+              Shown on the Live Dashboard aggregate report before Export CSV. Averages use transaction
+              rows only; label filters match substrings (case-insensitive). Leave a filter empty to
+              include all transactions.
+            </p>
+            <div className="config-form-grid">
+              <div className="form-row">
+                <label htmlFor="aggregate_total_avg_title">Total Avg Title</label>
+                <input
+                  id="aggregate_total_avg_title"
+                  value={form.aggregate_total_avg_title}
+                  onChange={(e) => setForm({ ...form, aggregate_total_avg_title: e.target.value })}
+                  required
+                />
+              </div>
+              <div className="form-row">
+                <label htmlFor="aggregate_total_avg_filter">Total Avg Label Filter</label>
+                <input
+                  id="aggregate_total_avg_filter"
+                  value={form.aggregate_total_avg_filter}
+                  onChange={(e) => setForm({ ...form, aggregate_total_avg_filter: e.target.value })}
+                  placeholder="Empty = all transactions"
+                />
+              </div>
+              <div className="form-row">
+                <label htmlFor="aggregate_load_avg_title">Load Avg Title</label>
+                <input
+                  id="aggregate_load_avg_title"
+                  value={form.aggregate_load_avg_title}
+                  onChange={(e) => setForm({ ...form, aggregate_load_avg_title: e.target.value })}
+                  required
+                />
+              </div>
+              <div className="form-row">
+                <label htmlFor="aggregate_load_avg_filter">Load Avg Label Filter</label>
+                <input
+                  id="aggregate_load_avg_filter"
+                  value={form.aggregate_load_avg_filter}
+                  onChange={(e) => setForm({ ...form, aggregate_load_avg_filter: e.target.value })}
+                  placeholder="_L_"
+                />
+              </div>
+              <div className="form-row">
+                <label htmlFor="aggregate_submit_avg_title">Submit Avg Title</label>
+                <input
+                  id="aggregate_submit_avg_title"
+                  value={form.aggregate_submit_avg_title}
+                  onChange={(e) => setForm({ ...form, aggregate_submit_avg_title: e.target.value })}
+                  required
+                />
+              </div>
+              <div className="form-row">
+                <label htmlFor="aggregate_submit_avg_filter">Submit Avg Label Filter</label>
+                <input
+                  id="aggregate_submit_avg_filter"
+                  value={form.aggregate_submit_avg_filter}
+                  onChange={(e) => setForm({ ...form, aggregate_submit_avg_filter: e.target.value })}
+                  placeholder="_S_"
+                />
+              </div>
             </div>
           </div>
           <div className="toolbar" style={{ marginTop: '0.75rem' }}>

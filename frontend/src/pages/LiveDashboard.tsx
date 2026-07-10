@@ -19,6 +19,11 @@ import { formatLocalDateTime } from '../utils/datetime'
 import { computeTransactionTotals, metricToTotals } from '../utils/transactionTotals'
 import { filterTransactionsByKind } from '../utils/transactionKind'
 import { defaultSortDir, sortTransactions, type AggregateSortField, type SortDir } from '../utils/sortTransactions'
+import {
+  computeAggregateSummaryAvgs,
+  DEFAULT_AGGREGATE_SUMMARY_CONFIG,
+  type AggregateSummaryConfig,
+} from '../utils/aggregateSummaryAvgs'
 import { downloadAggregateReportCsv } from '../utils/exportAggregateCsv'
 import type { AggregateKindFilter } from '../types'
 
@@ -71,6 +76,9 @@ export default function LiveDashboard() {
   const [errorsLoading, setErrorsLoading] = useState(false)
   const [viewingError, setViewingError] = useState<ErrorSample | null>(null)
   const [refreshIntervalSeconds, setRefreshIntervalSeconds] = useState(DEFAULT_REFRESH_SECONDS)
+  const [aggregateSummaryConfig, setAggregateSummaryConfig] = useState<AggregateSummaryConfig>(
+    DEFAULT_AGGREGATE_SUMMARY_CONFIG
+  )
   const [refreshGeneration, setRefreshGeneration] = useState(0)
   const [transactionTotals, setTransactionTotals] = useState<TransactionTotals | null>(null)
 
@@ -89,6 +97,20 @@ export default function LiveDashboard() {
         setRefreshIntervalSeconds(
           cfg.live_dashboard_refresh_interval_seconds ?? DEFAULT_REFRESH_SECONDS
         )
+        setAggregateSummaryConfig({
+          aggregate_total_avg_title:
+            cfg.aggregate_total_avg_title ?? DEFAULT_AGGREGATE_SUMMARY_CONFIG.aggregate_total_avg_title,
+          aggregate_total_avg_filter:
+            cfg.aggregate_total_avg_filter ?? DEFAULT_AGGREGATE_SUMMARY_CONFIG.aggregate_total_avg_filter,
+          aggregate_load_avg_title:
+            cfg.aggregate_load_avg_title ?? DEFAULT_AGGREGATE_SUMMARY_CONFIG.aggregate_load_avg_title,
+          aggregate_load_avg_filter:
+            cfg.aggregate_load_avg_filter ?? DEFAULT_AGGREGATE_SUMMARY_CONFIG.aggregate_load_avg_filter,
+          aggregate_submit_avg_title:
+            cfg.aggregate_submit_avg_title ?? DEFAULT_AGGREGATE_SUMMARY_CONFIG.aggregate_submit_avg_title,
+          aggregate_submit_avg_filter:
+            cfg.aggregate_submit_avg_filter ?? DEFAULT_AGGREGATE_SUMMARY_CONFIG.aggregate_submit_avg_filter,
+        })
       })
       .catch(console.error)
   }, [])
@@ -400,6 +422,11 @@ export default function LiveDashboard() {
     [filteredTransactions, sortField, sortDir]
   )
 
+  const aggregateSummaryAvgs = useMemo(
+    () => computeAggregateSummaryAvgs(metrics?.transactions, aggregateSummaryConfig),
+    [metrics?.transactions, aggregateSummaryConfig]
+  )
+
   const handleAggregateSort = useCallback((field: AggregateSortField) => {
     if (sortField === field) {
       setSortDir((dir) => (dir === 'asc' ? 'desc' : 'asc'))
@@ -638,6 +665,16 @@ export default function LiveDashboard() {
             value={labelFilter}
             onChange={(e) => setLabelFilter(e.target.value)}
           />
+          <div className="aggregate-summary-stats" aria-label="Transaction average summary">
+            {aggregateSummaryAvgs.map((item) => (
+              <div key={item.title} className="aggregate-summary-stat">
+                <span className="aggregate-summary-stat-label">{item.title}</span>
+                <span className="aggregate-summary-stat-value">
+                  {item.avg_ms != null ? `${item.avg_ms} ms` : '—'}
+                </span>
+              </div>
+            ))}
+          </div>
           <button
             type="button"
             className="btn btn-secondary aggregate-export-btn"

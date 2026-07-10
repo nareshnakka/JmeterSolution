@@ -33,6 +33,12 @@ def _to_config_out(cfg) -> SystemConfigOut:
         auto_archive_enabled=cfg.auto_archive_enabled,
         resource_sample_interval_seconds=cfg.resource_sample_interval_seconds,
         live_dashboard_refresh_interval_seconds=cfg.live_dashboard_refresh_interval_seconds,
+        aggregate_total_avg_title=getattr(cfg, "aggregate_total_avg_title", "Total Avg"),
+        aggregate_total_avg_filter=getattr(cfg, "aggregate_total_avg_filter", ""),
+        aggregate_load_avg_title=getattr(cfg, "aggregate_load_avg_title", "Load Avg"),
+        aggregate_load_avg_filter=getattr(cfg, "aggregate_load_avg_filter", "_L_"),
+        aggregate_submit_avg_title=getattr(cfg, "aggregate_submit_avg_title", "Submit Avg"),
+        aggregate_submit_avg_filter=getattr(cfg, "aggregate_submit_avg_filter", "_S_"),
         jmeter_found=(jmeter_path / "bin" / "jmeter.bat").is_file(),
         updated_at=cfg.updated_at,
     )
@@ -55,6 +61,12 @@ def save_config(body: SystemConfigUpdate, db: Session = Depends(get_db)):
             auto_archive_enabled=body.auto_archive_enabled,
             resource_sample_interval_seconds=body.resource_sample_interval_seconds,
             live_dashboard_refresh_interval_seconds=body.live_dashboard_refresh_interval_seconds,
+            aggregate_total_avg_title=body.aggregate_total_avg_title,
+            aggregate_total_avg_filter=body.aggregate_total_avg_filter,
+            aggregate_load_avg_title=body.aggregate_load_avg_title,
+            aggregate_load_avg_filter=body.aggregate_load_avg_filter,
+            aggregate_submit_avg_title=body.aggregate_submit_avg_title,
+            aggregate_submit_avg_filter=body.aggregate_submit_avg_filter,
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc

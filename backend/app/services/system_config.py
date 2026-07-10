@@ -35,6 +35,22 @@ def apply_runtime_paths(jmeter_home: str, data_root: str) -> None:
     settings.data_root.mkdir(parents=True, exist_ok=True)
 
 
+DEFAULT_AGGREGATE_TOTAL_AVG_TITLE = "Total Avg"
+DEFAULT_AGGREGATE_LOAD_AVG_TITLE = "Load Avg"
+DEFAULT_AGGREGATE_LOAD_AVG_FILTER = "_L_"
+DEFAULT_AGGREGATE_SUBMIT_AVG_TITLE = "Submit Avg"
+DEFAULT_AGGREGATE_SUBMIT_AVG_FILTER = "_S_"
+
+
+def normalize_aggregate_title(title: str, *, fallback: str) -> str:
+    trimmed = title.strip()
+    return trimmed if trimmed else fallback
+
+
+def normalize_aggregate_filter(value: str) -> str:
+    return value.strip()
+
+
 def get_system_config(db: Session) -> SystemConfig:
     cfg = db.get(SystemConfig, 1)
     if cfg is None:
@@ -46,6 +62,12 @@ def get_system_config(db: Session) -> SystemConfig:
             auto_archive_enabled=True,
             resource_sample_interval_seconds=DEFAULT_RESOURCE_SAMPLE_INTERVAL_SECONDS,
             live_dashboard_refresh_interval_seconds=DEFAULT_LIVE_DASHBOARD_REFRESH_INTERVAL_SECONDS,
+            aggregate_total_avg_title=DEFAULT_AGGREGATE_TOTAL_AVG_TITLE,
+            aggregate_total_avg_filter="",
+            aggregate_load_avg_title=DEFAULT_AGGREGATE_LOAD_AVG_TITLE,
+            aggregate_load_avg_filter=DEFAULT_AGGREGATE_LOAD_AVG_FILTER,
+            aggregate_submit_avg_title=DEFAULT_AGGREGATE_SUBMIT_AVG_TITLE,
+            aggregate_submit_avg_filter=DEFAULT_AGGREGATE_SUBMIT_AVG_FILTER,
         )
         db.add(cfg)
         db.commit()
@@ -63,6 +85,12 @@ def update_system_config(
     auto_archive_enabled: bool,
     resource_sample_interval_seconds: int,
     live_dashboard_refresh_interval_seconds: int,
+    aggregate_total_avg_title: str,
+    aggregate_total_avg_filter: str,
+    aggregate_load_avg_title: str,
+    aggregate_load_avg_filter: str,
+    aggregate_submit_avg_title: str,
+    aggregate_submit_avg_filter: str,
 ) -> SystemConfig:
     jmeter_path = Path(jmeter_home)
     data_path = Path(data_root)
@@ -82,6 +110,21 @@ def update_system_config(
     cfg.live_dashboard_refresh_interval_seconds = normalize_live_dashboard_refresh_interval(
         live_dashboard_refresh_interval_seconds
     )
+    cfg.aggregate_total_avg_title = normalize_aggregate_title(
+        aggregate_total_avg_title,
+        fallback=DEFAULT_AGGREGATE_TOTAL_AVG_TITLE,
+    )
+    cfg.aggregate_total_avg_filter = normalize_aggregate_filter(aggregate_total_avg_filter)
+    cfg.aggregate_load_avg_title = normalize_aggregate_title(
+        aggregate_load_avg_title,
+        fallback=DEFAULT_AGGREGATE_LOAD_AVG_TITLE,
+    )
+    cfg.aggregate_load_avg_filter = normalize_aggregate_filter(aggregate_load_avg_filter)
+    cfg.aggregate_submit_avg_title = normalize_aggregate_title(
+        aggregate_submit_avg_title,
+        fallback=DEFAULT_AGGREGATE_SUBMIT_AVG_TITLE,
+    )
+    cfg.aggregate_submit_avg_filter = normalize_aggregate_filter(aggregate_submit_avg_filter)
     db.commit()
     db.refresh(cfg)
     apply_runtime_paths(cfg.jmeter_home, cfg.data_root)

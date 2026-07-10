@@ -137,6 +137,12 @@ class SystemConfig(Base):
     auto_archive_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     resource_sample_interval_seconds: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
     live_dashboard_refresh_interval_seconds: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
+    aggregate_total_avg_title: Mapped[str] = mapped_column(String(128), default="Total Avg", nullable=False)
+    aggregate_total_avg_filter: Mapped[str] = mapped_column(String(256), default="", nullable=False)
+    aggregate_load_avg_title: Mapped[str] = mapped_column(String(128), default="Load Avg", nullable=False)
+    aggregate_load_avg_filter: Mapped[str] = mapped_column(String(256), default="_L_", nullable=False)
+    aggregate_submit_avg_title: Mapped[str] = mapped_column(String(128), default="Submit Avg", nullable=False)
+    aggregate_submit_avg_filter: Mapped[str] = mapped_column(String(256), default="_S_", nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
 

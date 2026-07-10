@@ -212,6 +212,12 @@ export const api = {
     auto_archive_enabled: boolean
     resource_sample_interval_seconds: number
     live_dashboard_refresh_interval_seconds: number
+    aggregate_total_avg_title: string
+    aggregate_total_avg_filter: string
+    aggregate_load_avg_title: string
+    aggregate_load_avg_filter: string
+    aggregate_submit_avg_title: string
+    aggregate_submit_avg_filter: string
   }) =>
     request<import('./types').SystemConfig>('/config', {
       method: 'PUT',

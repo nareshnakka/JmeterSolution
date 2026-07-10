@@ -63,6 +63,18 @@ def _migrate_schema() -> None:
                         "ADD COLUMN live_dashboard_refresh_interval_seconds INTEGER NOT NULL DEFAULT 10"
                     )
                 )
+        aggregate_columns = {
+            "aggregate_total_avg_title": "VARCHAR(128) NOT NULL DEFAULT 'Total Avg'",
+            "aggregate_total_avg_filter": "VARCHAR(256) NOT NULL DEFAULT ''",
+            "aggregate_load_avg_title": "VARCHAR(128) NOT NULL DEFAULT 'Load Avg'",
+            "aggregate_load_avg_filter": "VARCHAR(256) NOT NULL DEFAULT '_L_'",
+            "aggregate_submit_avg_title": "VARCHAR(128) NOT NULL DEFAULT 'Submit Avg'",
+            "aggregate_submit_avg_filter": "VARCHAR(256) NOT NULL DEFAULT '_S_'",
+        }
+        for col_name, col_def in aggregate_columns.items():
+            if col_name not in cfg_cols:
+                with engine.begin() as conn:
+                    conn.execute(text(f"ALTER TABLE system_config ADD COLUMN {col_name} {col_def}"))
 
     if "scenarios" in insp.get_table_names():
         scenario_cols = {c["name"] for c in insp.get_columns("scenarios")}
