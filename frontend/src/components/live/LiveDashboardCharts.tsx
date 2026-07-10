@@ -11,26 +11,32 @@ type ThroughputPoint = { t: number; hits_per_sec: number }
 type GraphSeries = { label: string; points: { t: number; avg_ms: number }[] }
 type ErrorGraphSeries = { label: string; points: { t: number; errors: number }[] }
 
-function useTimelineScale(points: { t: number }[], elapsedSeconds?: number) {
+function useTimelineScale(points: { t: number }[], elapsedSeconds?: number, capToData?: boolean) {
   return useMemo(() => {
-    const maxT = Math.max(maxTimeFromPoints(points), elapsedSeconds ?? 0)
+    const dataMax = maxTimeFromPoints(points)
+    const maxT = capToData ? dataMax : Math.max(dataMax, elapsedSeconds ?? 0)
     return timelineScaleForSeconds(maxT)
-  }, [points, elapsedSeconds])
+  }, [points, elapsedSeconds, capToData])
 }
 
 interface ActiveUsersChartProps {
   data: UsersPoint[]
   elapsedSeconds?: number
+  capTimelineToData?: boolean
   refreshIntervalSeconds: number
 }
 
 export const ActiveUsersChart = memo(function ActiveUsersChart({
   data,
   elapsedSeconds,
+  capTimelineToData = false,
   refreshIntervalSeconds,
 }: ActiveUsersChartProps) {
   const chartData = useMemo(() => downsamplePoints(data), [data])
-  const timeline = useTimelineScale(chartData, elapsedSeconds)
+  const timeline = useTimelineScale(chartData, elapsedSeconds, capTimelineToData)
+  const xMax = capTimelineToData
+    ? maxTimeFromPoints(chartData)
+    : (elapsedSeconds && elapsedSeconds > 0 ? elapsedSeconds : 'dataMax')
 
   return (
     <div className="card">
@@ -46,7 +52,7 @@ export const ActiveUsersChart = memo(function ActiveUsersChart({
               <XAxis
                 dataKey="t"
                 type="number"
-                domain={[0, elapsedSeconds && elapsedSeconds > 0 ? elapsedSeconds : 'dataMax']}
+                domain={[0, xMax || 'dataMax']}
                 stroke={chartTheme.axis}
                 tickFormatter={(t) => timeline.formatValue(Number(t))}
                 label={{ value: timeline.axisLabel, position: 'insideBottom', offset: -5 }}
@@ -91,16 +97,21 @@ export const ActiveUsersChart = memo(function ActiveUsersChart({
 interface ThroughputChartProps {
   data: ThroughputPoint[]
   elapsedSeconds?: number
+  capTimelineToData?: boolean
   refreshIntervalSeconds: number
 }
 
 export const ThroughputChart = memo(function ThroughputChart({
   data,
   elapsedSeconds,
+  capTimelineToData = false,
   refreshIntervalSeconds,
 }: ThroughputChartProps) {
   const chartData = useMemo(() => downsamplePoints(data), [data])
-  const timeline = useTimelineScale(chartData, elapsedSeconds)
+  const timeline = useTimelineScale(chartData, elapsedSeconds, capTimelineToData)
+  const xMax = capTimelineToData
+    ? maxTimeFromPoints(chartData)
+    : (elapsedSeconds && elapsedSeconds > 0 ? elapsedSeconds : 'dataMax')
 
   return (
     <div className="card">
@@ -116,7 +127,7 @@ export const ThroughputChart = memo(function ThroughputChart({
               <XAxis
                 dataKey="t"
                 type="number"
-                domain={[0, elapsedSeconds && elapsedSeconds > 0 ? elapsedSeconds : 'dataMax']}
+                domain={[0, xMax || 'dataMax']}
                 stroke={chartTheme.axis}
                 tickFormatter={(t) => timeline.formatValue(Number(t))}
                 label={{ value: timeline.axisLabel, position: 'insideBottom', offset: -5 }}

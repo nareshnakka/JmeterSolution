@@ -527,11 +527,13 @@ export default function LiveDashboard() {
         <ActiveUsersChart
           data={usersChartData}
           elapsedSeconds={metrics?.elapsed_seconds}
+          capTimelineToData={!isRunning}
           refreshIntervalSeconds={refreshIntervalSeconds}
         />
         <ThroughputChart
           data={throughputChartData}
           elapsedSeconds={metrics?.elapsed_seconds}
+          capTimelineToData={!isRunning}
           refreshIntervalSeconds={refreshIntervalSeconds}
         />
       </div>

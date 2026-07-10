@@ -52,12 +52,13 @@ def test_throughput_series_counts_successful_hits_per_second():
     assert series[0]["hits_per_sec"] == 4.0
 
 
-def test_running_test_extends_timeline_to_elapsed_seconds(monkeypatch):
+def test_running_timeline_stops_at_last_sample_not_wall_clock(monkeypatch):
     agg = MetricsAggregator(test_run_id=1, start_wall_time=100.0, timeline_bucket_seconds=1)
     agg.status = TestRunStatus.RUNNING
     _ingest(agg, timestamp_ms=100_000, all_threads=3)
+    _ingest(agg, timestamp_ms=370_000, all_threads=0)
 
-    monkeypatch.setattr("app.services.jtl_parser.time.time", lambda: 105.0)
+    monkeypatch.setattr("app.services.jtl_parser.time.time", lambda: 1500.0)
     series = agg._filled_active_users_series()
-    assert series[-1]["t"] == 5.0
-    assert series[-1]["users"] == 3
+    assert series[-1]["t"] == 270.0
+    assert agg._elapsed_seconds() == 270.0

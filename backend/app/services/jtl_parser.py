@@ -118,6 +118,7 @@ class MetricsAggregator:
     _error_count: int = 0
     _snapshot_cache: LiveMetricsSnapshot | None = field(default=None, repr=False)
     _snapshot_revision: int = -1
+    _snapshot_status: TestRunStatus | None = None
     _transactions_cache: list[TransactionMetric] | None = field(default=None, repr=False)
     _transactions_revision: int = -1
 
@@ -192,19 +193,27 @@ class MetricsAggregator:
     def _timeline_time(self, bucket: int) -> float:
         return round(bucket * self.timeline_bucket_seconds, 1)
 
+    def _sample_end_seconds(self) -> float:
+        """Elapsed seconds at the last JTL sample (actual test activity end)."""
+        if not self.samples:
+            return 0.001
+        last_ts = max(s.timestamp_ms for s in self.samples) / 1000.0
+        return max(last_ts - self.start_wall_time, 0.001)
+
+    def _sample_end_bucket(self) -> int:
+        return int(self._sample_end_seconds() // self.timeline_bucket_seconds)
+
     def _timeline_max_bucket(self) -> int:
+        """Last timeline bucket with sample activity (never wall-clock padded)."""
         buckets: list[int] = []
         if self._users_by_timeline_bucket:
             buckets.append(max(self._users_by_timeline_bucket))
         if self._throughput_by_timeline_bucket:
             buckets.append(max(self._throughput_by_timeline_bucket))
+        sample_end = self._sample_end_bucket()
         if not buckets:
-            return 0
-        max_bucket = max(buckets)
-        if self.status == TestRunStatus.RUNNING:
-            current = int(self._elapsed_seconds() // self.timeline_bucket_seconds)
-            max_bucket = max(max_bucket, current)
-        return max_bucket
+            return sample_end
+        return min(max(buckets), sample_end)
 
     def _filled_active_users_series(self) -> list[dict[str, Any]]:
         """Virtual users timeline — sparse step points (only value changes)."""
@@ -222,8 +231,6 @@ class MetricsAggregator:
                     last_users = users
         if not result:
             result.append({"t": 0.0, "users": 0})
-        elif result[-1]["t"] < self._timeline_time(max_bucket):
-            result.append({"t": self._timeline_time(max_bucket), "users": last_users})
         return result
 
     def _filled_throughput_series(self) -> list[dict[str, Any]]:
@@ -259,12 +266,16 @@ class MetricsAggregator:
         series.sort(key=lambda e: e.get("bucket", 0))
 
     def _elapsed_seconds(self) -> float:
+        sample_end = self._sample_end_seconds()
         if not self.samples:
             return 0.001
         if self.status == TestRunStatus.RUNNING:
-            return max(time.time() - self.start_wall_time, 0.001)
-        last_ts = max(s.timestamp_ms for s in self.samples) / 1000.0
-        return max(last_ts - self.start_wall_time, 0.001)
+            wall = max(time.time() - self.start_wall_time, 0.001)
+            # After samples stop, don't keep inflating elapsed/chart while JMeter shuts down.
+            if wall - sample_end > 15:
+                return sample_end
+            return max(wall, sample_end)
+        return sample_end
 
     def _collect_samples_for_aggregate(
         self,
@@ -353,7 +364,12 @@ class MetricsAggregator:
         return results
 
     def snapshot(self) -> LiveMetricsSnapshot:
-        if self._snapshot_cache is not None and self._snapshot_revision == self._revision:
+        cache_valid = (
+            self._snapshot_cache is not None
+            and self._snapshot_revision == self._revision
+            and self._snapshot_status == self.status
+        )
+        if cache_valid:
             if self.status == TestRunStatus.RUNNING:
                 elapsed = round(self._elapsed_seconds(), 1)
                 if self._snapshot_cache.elapsed_seconds != elapsed:
@@ -384,6 +400,7 @@ class MetricsAggregator:
         )
         self._snapshot_cache = snap
         self._snapshot_revision = self._revision
+        self._snapshot_status = self.status
         return snap
 
     def label_graph(
