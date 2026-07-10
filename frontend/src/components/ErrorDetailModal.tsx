@@ -122,7 +122,7 @@ export default function ErrorDetailModal({ runId, error, onClose }: ErrorDetailM
                   ? ' Headers are available above.'
                   : hasTrace
                     ? ' The error trace file did not include a response body for this sample.'
-                    : ' Run a new test to capture full error traces (errors-trace.jtl).'}
+                    : ' Run a new test to capture full error traces (errors-trace.jtl in XML format).'}
               </p>
             )}
           </>

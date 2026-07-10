@@ -6,6 +6,7 @@ import csv
 import io
 import statistics
 import time
+import xml.etree.ElementTree as ET
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -619,12 +620,93 @@ def _merge_error_detail(primary: ErrorDetailOut, fallback: ErrorDetailOut) -> Er
     return primary
 
 
-def find_matching_trace_sample(trace_jtl: str | Path, ref: Sample) -> Sample | None:
-    """Find the best failed sample row in errors-trace.jtl (exact or child HTTP sample)."""
-    path = Path(trace_jtl)
-    if not path.is_file():
+def _is_xml_jtl(path: Path) -> bool:
+    try:
+        with open(path, "rb") as f:
+            head = f.read(512).lstrip()
+    except OSError:
+        return False
+    return head.startswith(b"<?xml") or head.startswith(b"<testResults")
+
+
+def _xml_local_tag(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1]
+
+
+def _is_jmeter_sample_tag(tag: str) -> bool:
+    local = _xml_local_tag(tag).lower()
+    return local in ("httpsample", "sample", "javasample") or local.endswith("sample")
+
+
+def _xml_child_text(elem: ET.Element, name: str) -> str:
+    for child in elem:
+        if _xml_local_tag(child.tag) == name and child.text:
+            return child.text
+    return ""
+
+
+def _sample_from_xml_element(elem: ET.Element, sample_index: int) -> Sample | None:
+    try:
+        timestamp_ms = int(elem.get("ts", "0") or 0)
+        elapsed_ms = float(elem.get("t", "0") or 0)
+    except ValueError:
         return None
 
+    return Sample(
+        sample_index=sample_index,
+        timestamp_ms=timestamp_ms,
+        elapsed_ms=elapsed_ms,
+        label=elem.get("lb", "") or "",
+        response_code=elem.get("rc", "") or "",
+        response_message=elem.get("rm", "") or "",
+        thread_name=elem.get("tn", "") or "",
+        success=(elem.get("s", "false") or "false").lower() == "true",
+        failure_message=_xml_child_text(elem, "failureMessage"),
+        url=_xml_child_text(elem, "url"),
+        data_type=elem.get("dt", "") or "",
+        sample_type=_xml_local_tag(elem.tag),
+        response_data=_xml_child_text(elem, "responseData"),
+        response_headers=_xml_child_text(elem, "responseHeader"),
+        request_headers=_xml_child_text(elem, "requestHeader"),
+        sampler_data=_xml_child_text(elem, "samplerData"),
+    )
+
+
+def _find_matching_trace_sample_xml(path: Path, ref: Sample) -> Sample | None:
+    try:
+        root = ET.parse(path).getroot()
+    except ET.ParseError:
+        return None
+
+    exact: Sample | None = None
+    loose: Sample | None = None
+    for idx, elem in enumerate(root.iter()):
+        if not _is_jmeter_sample_tag(elem.tag):
+            continue
+        sample = _sample_from_xml_element(elem, idx)
+        if sample is None or sample.success:
+            continue
+        if _samples_match_for_trace(ref, sample):
+            exact = sample
+            if _sample_has_trace_payload(sample):
+                return sample
+        elif (
+            sample.timestamp_ms == ref.timestamp_ms
+            and sample.thread_name == ref.thread_name
+        ):
+            if loose is None or (
+                _sample_has_trace_payload(sample) and not _sample_has_trace_payload(loose)
+            ):
+                loose = sample
+
+    if exact is not None and _sample_has_trace_payload(exact):
+        return exact
+    if loose is not None and _sample_has_trace_payload(loose):
+        return loose
+    return exact or loose
+
+
+def _find_matching_trace_sample_csv(path: Path, ref: Sample) -> Sample | None:
     exact: Sample | None = None
     loose: Sample | None = None
     with open(path, encoding="utf-8", errors="replace") as f:
@@ -656,6 +738,16 @@ def find_matching_trace_sample(trace_jtl: str | Path, ref: Sample) -> Sample | N
     if loose is not None and _sample_has_trace_payload(loose):
         return loose
     return exact or loose
+
+
+def find_matching_trace_sample(trace_jtl: str | Path, ref: Sample) -> Sample | None:
+    """Find the best failed sample in errors-trace.jtl (XML or legacy CSV)."""
+    path = Path(trace_jtl)
+    if not path.is_file():
+        return None
+    if _is_xml_jtl(path):
+        return _find_matching_trace_sample_xml(path, ref)
+    return _find_matching_trace_sample_csv(path, ref)
 
 
 def get_error_detail_from_jtl(path: str | Path, sample_index: int) -> ErrorDetailOut | None:

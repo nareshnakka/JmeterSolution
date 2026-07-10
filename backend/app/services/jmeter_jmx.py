@@ -42,7 +42,8 @@ def _save_config_element() -> ET.Element:
         "subresults": True,
         "responseData": True,
         "samplerData": True,
-        "xml": False,
+        # CSV JTL cannot store bodies/headers (line breaks). Error trace must be XML.
+        "xml": True,
         "fieldNames": True,
         "responseHeaders": True,
         "requestHeaders": True,
@@ -79,9 +80,9 @@ def _error_trace_listener(error_jtl: Path) -> ET.Element:
         },
     )
     collector.append(_bool_prop("ResultCollector.error_logging", True))
-    collector.append(_bool_prop("ResultCollector.success_logging", False))
+    collector.append(_bool_prop("ResultCollector.success_only_logging", False))
     collector.append(_save_config_element())
-    collector.append(_string_prop("filename", str(error_jtl.resolve())))
+    collector.append(_string_prop("filename", error_jtl.resolve().as_posix()))
     return collector
 
 
