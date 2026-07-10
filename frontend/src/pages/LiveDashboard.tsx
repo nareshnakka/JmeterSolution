@@ -517,7 +517,7 @@ export default function LiveDashboard() {
       </div>
 
       {metrics && (
-        <div className="stat-row dashboard-stat-row">
+        <div className="dashboard-stat-row">
           <div className="stat"><div className="value">{displayActiveThreads}</div><div className="label">Active Users</div></div>
           <div className="stat"><div className="value">{metrics.total_samples}</div><div className="label">Samples</div></div>
           <div className="stat"><div className="value">{metrics.total_errors}</div><div className="label">Errors</div></div>
