@@ -259,6 +259,7 @@ export interface LiveMetrics {
   total_errors: number
   transactions: TransactionMetric[]
   errors: ErrorSample[]
+  response_codes?: { response_code: string; count: number; pct: number }[]
   active_users_series: { t: number; users: number }[]
   throughput_series: { t: number; hits_per_sec: number }[]
 }

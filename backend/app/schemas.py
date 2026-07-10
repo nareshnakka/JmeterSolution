@@ -322,6 +322,12 @@ class ErrorSample(BaseModel):
     elapsed_ms: float = 0.0
 
 
+class ResponseCodeCount(BaseModel):
+    response_code: str
+    count: int
+    pct: float = 0.0
+
+
 class ErrorDetailOut(BaseModel):
     sample_index: int
     timestamp: int
@@ -348,6 +354,7 @@ class LiveMetricsSnapshot(BaseModel):
     total_errors: int = 0
     transactions: list[TransactionMetric] = Field(default_factory=list)
     errors: list[ErrorSample] = Field(default_factory=list)
+    response_codes: list[ResponseCodeCount] = Field(default_factory=list)
     active_users_series: list[dict[str, Any]] = Field(default_factory=list)
     throughput_series: list[dict[str, Any]] = Field(default_factory=list)
 

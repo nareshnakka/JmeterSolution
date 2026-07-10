@@ -12,7 +12,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from app.schemas import ErrorDetailOut, ErrorSample, LiveMetricsSnapshot, TransactionMetric
+from app.schemas import (
+    ErrorDetailOut,
+    ErrorSample,
+    LiveMetricsSnapshot,
+    ResponseCodeCount,
+    TransactionMetric,
+)
 from app.models import TestRunStatus
 
 
@@ -122,6 +128,8 @@ class MetricsAggregator:
     _snapshot_status: TestRunStatus | None = None
     _transactions_cache: list[TransactionMetric] | None = field(default=None, repr=False)
     _transactions_revision: int = -1
+    _response_codes_cache: list[ResponseCodeCount] | None = field(default=None, repr=False)
+    _response_codes_revision: int = -1
 
     def ingest_line(self, line: str) -> None:
         line = line.strip()
@@ -364,6 +372,28 @@ class MetricsAggregator:
             self._transactions_revision = self._revision
         return results
 
+    def response_code_counts(self) -> list[ResponseCodeCount]:
+        if self._response_codes_cache is not None and self._response_codes_revision == self._revision:
+            return self._response_codes_cache
+
+        totals: dict[str, int] = defaultdict(int)
+        for sample in self.samples:
+            code = (sample.response_code or "").strip() or "N/A"
+            totals[code] += 1
+
+        total = len(self.samples)
+        results = [
+            ResponseCodeCount(
+                response_code=code,
+                count=count,
+                pct=round(100.0 * count / total, 2) if total else 0.0,
+            )
+            for code, count in sorted(totals.items(), key=lambda item: (-item[1], item[0]))
+        ]
+        self._response_codes_cache = results
+        self._response_codes_revision = self._revision
+        return results
+
     def snapshot(self) -> LiveMetricsSnapshot:
         cache_valid = (
             self._snapshot_cache is not None
@@ -396,6 +426,7 @@ class MetricsAggregator:
             total_errors=self._error_count,
             transactions=self.transaction_metrics(),
             errors=self.errors[-50:],
+            response_codes=self.response_code_counts(),
             active_users_series=self._filled_active_users_series(),
             throughput_series=self._filled_throughput_series(),
         )

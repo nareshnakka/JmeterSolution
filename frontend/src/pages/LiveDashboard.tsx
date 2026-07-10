@@ -7,6 +7,8 @@ import HostResourceChart from '../components/HostResourceChart'
 import {
   ActiveUsersChart,
   ErrorsOverTimeChart,
+  PassFailPieChart,
+  ResponseCodesTable,
   ResponseTimeChart,
   ThroughputChart,
 } from '../components/live/LiveDashboardCharts'
@@ -515,11 +517,17 @@ export default function LiveDashboard() {
       </div>
 
       {metrics && (
-        <div className="stat-row">
-          <div className="stat"><div className="value">{displayActiveThreads}</div><div className="label">Active Users</div></div>
-          <div className="stat"><div className="value">{metrics.total_samples}</div><div className="label">Samples</div></div>
-          <div className="stat"><div className="value">{metrics.total_errors}</div><div className="label">Errors</div></div>
-          <div className="stat"><div className="value">{elapsedDisplay}</div><div className="label">Elapsed</div></div>
+        <div className="dashboard-summary-row">
+          <div className="stat-row">
+            <div className="stat"><div className="value">{displayActiveThreads}</div><div className="label">Active Users</div></div>
+            <div className="stat"><div className="value">{metrics.total_samples}</div><div className="label">Samples</div></div>
+            <div className="stat"><div className="value">{metrics.total_errors}</div><div className="label">Errors</div></div>
+            <div className="stat"><div className="value">{elapsedDisplay}</div><div className="label">Elapsed</div></div>
+          </div>
+          <PassFailPieChart
+            totalSamples={metrics.total_samples}
+            totalErrors={metrics.total_errors}
+          />
         </div>
       )}
 
@@ -741,6 +749,7 @@ export default function LiveDashboard() {
         )}
       </div>
 
+      <div className="grid-2 dashboard-details-grid">
       <div className="card">
         <h2>Errors &amp; Exceptions</h2>
         <div className="filters">
@@ -791,6 +800,9 @@ export default function LiveDashboard() {
             {' · '}{metrics?.total_errors ?? 0} total in run
           </p>
         ) : null}
+      </div>
+
+      <ResponseCodesTable rows={metrics?.response_codes ?? []} />
       </div>
 
       {viewingError && (

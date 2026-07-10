@@ -1,6 +1,7 @@
 import { memo, useMemo } from 'react'
 import {
   LineChart, Line, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+  PieChart, Pie, Cell,
 } from 'recharts'
 import { downsamplePoints, downsampleSeries } from '../../utils/chartDownsample'
 import { maxTimeFromPoints, timelineScaleForSeconds } from '../../utils/timeline'
@@ -10,6 +11,7 @@ type UsersPoint = { t: number; users: number }
 type ThroughputPoint = { t: number; hits_per_sec: number }
 type GraphSeries = { label: string; points: { t: number; avg_ms: number }[] }
 type ErrorGraphSeries = { label: string; points: { t: number; errors: number }[] }
+type ResponseCodeRow = { response_code: string; count: number; pct: number }
 
 function useTimelineScale(points: { t: number }[], elapsedSeconds?: number, capToData?: boolean) {
   return useMemo(() => {
@@ -356,6 +358,117 @@ export const ErrorsOverTimeChart = memo(function ErrorsOverTimeChart({
           Showing errors per interval for: {Array.from(selectedLabels).join(', ')}
         </p>
       )}
+    </div>
+  )
+})
+
+interface PassFailPieChartProps {
+  totalSamples: number
+  totalErrors: number
+}
+
+export const PassFailPieChart = memo(function PassFailPieChart({
+  totalSamples,
+  totalErrors,
+}: PassFailPieChartProps) {
+  const passCount = Math.max(totalSamples - totalErrors, 0)
+  const failCount = totalErrors
+
+  const data = useMemo(() => {
+    if (totalSamples <= 0) return []
+    const rows = [
+      {
+        name: 'Pass',
+        value: passCount,
+        pct: (passCount / totalSamples) * 100,
+        fill: chartTheme.throughput,
+      },
+      {
+        name: 'Fail',
+        value: failCount,
+        pct: (failCount / totalSamples) * 100,
+        fill: chartTheme.errorSeries[0],
+      },
+    ]
+    return rows.filter((row) => row.value > 0)
+  }, [totalSamples, passCount, failCount])
+
+  return (
+    <div className="dashboard-pass-fail-chart" aria-label="Pass and fail percentage">
+      <div className="dashboard-pass-fail-title">Pass / Fail</div>
+      {data.length > 0 ? (
+        <ResponsiveContainer width="100%" height={150}>
+          <PieChart>
+            <Pie
+              data={data}
+              dataKey="value"
+              nameKey="name"
+              cx="50%"
+              cy="50%"
+              innerRadius={34}
+              outerRadius={56}
+              paddingAngle={2}
+              label={({ name, pct }) => `${name} ${pct.toFixed(1)}%`}
+              isAnimationActive={false}
+            >
+              {data.map((entry) => (
+                <Cell key={entry.name} fill={entry.fill} />
+              ))}
+            </Pie>
+            <Tooltip
+              formatter={(value: number, name: string, item) => [
+                `${value} (${Number(item.payload.pct).toFixed(1)}%)`,
+                name,
+              ]}
+              contentStyle={{
+                background: chartTheme.tooltipBg,
+                border: `1px solid ${chartTheme.tooltipBorder}`,
+              }}
+            />
+          </PieChart>
+        </ResponsiveContainer>
+      ) : (
+        <p className="empty" style={{ margin: '2rem 0' }}>No samples yet</p>
+      )}
+    </div>
+  )
+})
+
+interface ResponseCodesTableProps {
+  rows: ResponseCodeRow[]
+}
+
+export const ResponseCodesTable = memo(function ResponseCodesTable({ rows }: ResponseCodesTableProps) {
+  return (
+    <div className="card response-codes-card">
+      <h2>Response Codes</h2>
+      <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '-0.25rem' }}>
+        HTTP response code distribution for all samples
+      </p>
+      <div className="table-wrap response-codes-table-wrap">
+        <table className="data-table response-codes-table">
+          <thead>
+            <tr>
+              <th>Response Code</th>
+              <th>Count</th>
+              <th>%</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length ? rows.map((row) => (
+              <tr key={row.response_code}>
+                <td><strong>{row.response_code}</strong></td>
+                <td>{row.count}</td>
+                <td>{row.pct.toFixed(2)}%</td>
+              </tr>
+            )) : (
+              <tr>
+                <td colSpan={3} className="empty">No samples yet</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 })
