@@ -44,26 +44,24 @@ if /I "%MODE%"=="dev" (
     exit /b 1
   )
 ) else (
-  if not exist "%FRONTEND%\dist\index.html" (
-    echo Building frontend for production...
-    pushd "%FRONTEND%"
-    if not exist node_modules (
-      echo Installing frontend dependencies...
-      call npm install
-      if errorlevel 1 (
-        echo ERROR: npm install failed.
-        popd
-        exit /b 1
-      )
-    )
-    call npm run build
+  echo Building frontend for production...
+  pushd "%FRONTEND%"
+  if not exist node_modules (
+    echo Installing frontend dependencies...
+    call npm install
     if errorlevel 1 (
-      echo ERROR: Frontend build failed.
+      echo ERROR: npm install failed.
       popd
       exit /b 1
     )
-    popd
   )
+  call npm run build
+  if errorlevel 1 (
+    echo ERROR: Frontend build failed.
+    popd
+    exit /b 1
+  )
+  popd
 )
 
 echo Starting JMeter Agent backend on http://localhost:%PORT% ...

@@ -1,5 +1,20 @@
 @echo off
 set ROOT=%~dp0..
+cd /d %ROOT%\frontend
+
+if not exist node_modules (
+  echo Installing frontend dependencies...
+  call npm install
+  if errorlevel 1 exit /b 1
+)
+
+echo Building frontend...
+call npm run build
+if errorlevel 1 (
+  echo ERROR: Frontend build failed.
+  exit /b 1
+)
+
 cd /d %ROOT%\backend
 
 if not exist venv (
