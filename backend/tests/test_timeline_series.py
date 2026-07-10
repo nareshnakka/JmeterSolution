@@ -52,6 +52,33 @@ def test_throughput_series_counts_successful_hits_per_second():
     assert series[0]["hits_per_sec"] == 4.0
 
 
+def test_label_graph_capped_to_active_test_window():
+    agg = MetricsAggregator(test_run_id=1, start_wall_time=0, bucket_seconds=5, timeline_bucket_seconds=1)
+    agg.status = TestRunStatus.COMPLETED
+    _ingest(agg, timestamp_ms=0, elapsed_ms=100, all_threads=5, label="Login")
+    _ingest(agg, timestamp_ms=200_000, elapsed_ms=110, all_threads=3, label="Login")
+    _ingest(agg, timestamp_ms=270_000, elapsed_ms=120, all_threads=0, label="Login")
+    _ingest(agg, timestamp_ms=3_600_000, elapsed_ms=500, all_threads=0, label="Login")
+
+    graph = agg.label_graph(["ALL"], cumulative=True)
+    points = graph["series"][0]["points"]
+    assert points
+    assert max(p["t"] for p in points) <= 270.1
+    assert graph["test_window_end"] <= 270.1
+
+
+def test_label_graph_uses_throughput_end_when_users_stay_high():
+    agg = MetricsAggregator(test_run_id=1, start_wall_time=0, bucket_seconds=5, timeline_bucket_seconds=1)
+    agg.status = TestRunStatus.COMPLETED
+    _ingest(agg, timestamp_ms=0, elapsed_ms=100, all_threads=10, label="Login")
+    _ingest(agg, timestamp_ms=270_000, elapsed_ms=120, all_threads=10, label="Login")
+    _ingest(agg, timestamp_ms=3_600_000, elapsed_ms=500, all_threads=10, label="Login", success=False)
+
+    graph = agg.label_graph(["ALL"], cumulative=True)
+    points = graph["series"][0]["points"]
+    assert max(p["t"] for p in points) <= 270.1
+
+
 def test_running_timeline_stops_at_last_sample_not_wall_clock(monkeypatch):
     agg = MetricsAggregator(test_run_id=1, start_wall_time=100.0, timeline_bucket_seconds=1)
     agg.status = TestRunStatus.RUNNING

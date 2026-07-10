@@ -404,6 +404,38 @@ class MetricsAggregator:
         self._snapshot_status = self.status
         return snap
 
+    def _test_window_end_seconds(self) -> float:
+        """End of the active load window, excluding post-test idle samples."""
+        if not self.samples:
+            return 0.001
+
+        ends: list[float] = []
+
+        active_buckets = sorted(
+            bucket for bucket, users in self._users_by_timeline_bucket.items() if users > 0
+        )
+        if active_buckets:
+            last_active = active_buckets[-1]
+            end_bucket = last_active
+            for bucket in sorted(self._users_by_timeline_bucket):
+                if bucket > last_active:
+                    end_bucket = bucket
+                    break
+            ends.append(self._timeline_time(min(end_bucket, self._sample_end_bucket())))
+
+        if self._throughput_by_timeline_bucket:
+            tp_end = self._timeline_time(max(self._throughput_by_timeline_bucket))
+            ends.append(min(tp_end, self._sample_end_seconds()))
+
+        if ends:
+            return min(ends)
+
+        return self._sample_end_seconds()
+
+    def _cap_graph_time(self, points: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        max_t = self._test_window_end_seconds()
+        return [p for p in points if float(p.get("t", 0)) <= max_t + 0.001]
+
     def label_graph(
         self,
         labels: list[str] | None = None,
@@ -421,6 +453,8 @@ class MetricsAggregator:
             buckets = self.label_time_series.get(label, [])
             points = []
             for b in buckets:
+                if float(b["t"]) > self._test_window_end_seconds() + 0.001:
+                    continue
                 vals = b["elapsed"]
                 points.append({"t": b["t"], "avg_ms": round(statistics.mean(vals), 2) if vals else 0})
             series.append({"label": label, "points": points})
@@ -431,9 +465,19 @@ class MetricsAggregator:
                 for p in s["points"]:
                     by_t[p["t"]].append(p["avg_ms"])
             merged = [{"t": t, "avg_ms": round(statistics.mean(v), 2)} for t, v in sorted(by_t.items())]
-            return {"mode": "cumulative", "series": [{"label": "ALL", "points": merged}]}
+            return {
+                "mode": "cumulative",
+                "series": [{"label": "ALL", "points": self._cap_graph_time(merged)}],
+                "test_window_end": round(self._test_window_end_seconds(), 1),
+            }
 
-        return {"mode": "individual", "series": series}
+        for s in series:
+            s["points"] = self._cap_graph_time(s["points"])
+        return {
+            "mode": "individual",
+            "series": series,
+            "test_window_end": round(self._test_window_end_seconds(), 1),
+        }
 
     def error_graph(
         self,
@@ -449,16 +493,21 @@ class MetricsAggregator:
             for entry in raw:
                 bucket = int(entry.get("bucket", 0))
                 by_bucket[bucket] = by_bucket.get(bucket, 0) + int(entry.get("errors", 0))
-            max_bucket = max(by_bucket)
+            if not by_bucket:
+                return []
+            window_end_bucket = int(self._test_window_end_seconds() // self.bucket_seconds)
+            max_bucket = min(max(by_bucket), window_end_bucket)
             return [
                 {"t": self._bucket_time(b), "errors": by_bucket.get(b, 0)}
                 for b in range(max_bucket + 1)
+                if self._bucket_time(b) <= self._test_window_end_seconds() + 0.001
             ]
 
         if labels is None or "ALL" in labels:
             return {
                 "mode": "all",
                 "series": [{"label": "ALL", "points": _interval_points(self.all_error_series)}],
+                "test_window_end": round(self._test_window_end_seconds(), 1),
             }
 
         target_labels = labels or []
@@ -467,7 +516,11 @@ class MetricsAggregator:
             points = _interval_points(self.label_error_series.get(label, []))
             series.append({"label": label, "points": points})
 
-        return {"mode": "individual", "series": series}
+        return {
+            "mode": "individual",
+            "series": series,
+            "test_window_end": round(self._test_window_end_seconds(), 1),
+        }
 
     def search_errors(self, query: str | None = None, limit: int = 200) -> list[ErrorSample]:
         """Search all failed samples (full JTL), most recent first."""

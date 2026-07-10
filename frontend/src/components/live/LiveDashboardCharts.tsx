@@ -191,10 +191,9 @@ export const ResponseTimeChart = memo(function ResponseTimeChart({
   onCumulativeGraph,
 }: ResponseTimeChartProps) {
   const series = useMemo(() => downsampleSeries(graphData), [graphData])
-  const timeline = useMemo(() => {
-    const points = series.flatMap((s) => s.points)
-    return timelineScaleForSeconds(maxTimeFromPoints(points))
-  }, [series])
+  const chartPoints = useMemo(() => series.flatMap((s) => s.points), [series])
+  const timeline = useTimelineScale(chartPoints, undefined, true)
+  const xMax = maxTimeFromPoints(chartPoints) || 'dataMax'
 
   return (
     <div className="card">
@@ -227,6 +226,7 @@ export const ResponseTimeChart = memo(function ResponseTimeChart({
               <XAxis
                 dataKey="t"
                 type="number"
+                domain={[0, xMax]}
                 stroke={chartTheme.axis}
                 tickFormatter={(t) => timeline.formatValue(Number(t))}
                 label={{ value: timeline.axisLabel, position: 'insideBottom', offset: -5 }}
@@ -289,10 +289,9 @@ export const ErrorsOverTimeChart = memo(function ErrorsOverTimeChart({
 }: ErrorsOverTimeChartProps) {
   const series = useMemo(() => downsampleSeries(errorsGraphData), [errorsGraphData])
   const hasPoints = series.some((s) => s.points.length > 0)
-  const timeline = useMemo(() => {
-    const points = series.flatMap((s) => s.points)
-    return timelineScaleForSeconds(maxTimeFromPoints(points))
-  }, [series])
+  const chartPoints = useMemo(() => series.flatMap((s) => s.points), [series])
+  const timeline = useTimelineScale(chartPoints, undefined, true)
+  const xMax = maxTimeFromPoints(chartPoints) || 'dataMax'
 
   return (
     <div className="card">
@@ -321,6 +320,7 @@ export const ErrorsOverTimeChart = memo(function ErrorsOverTimeChart({
               <XAxis
                 dataKey="t"
                 type="number"
+                domain={[0, xMax]}
                 stroke={chartTheme.axis}
                 tickFormatter={(t) => timeline.formatValue(Number(t))}
                 label={{ value: timeline.axisLabel, position: 'insideBottom', offset: -5 }}
