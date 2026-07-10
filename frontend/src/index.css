@@ -1347,27 +1347,23 @@ tfoot .aggregate-total-row:hover td {
   margin-bottom: 1.25rem;
 }
 
-.dashboard-summary-row {
-  display: flex;
+.dashboard-stat-row {
   align-items: stretch;
-  justify-content: space-between;
-  gap: 1rem;
   margin-bottom: 1rem;
 }
 
-.dashboard-summary-row .stat-row {
-  flex: 1;
-  margin-bottom: 0;
-}
-
 .dashboard-pass-fail-chart {
-  width: 240px;
+  width: 300px;
+  min-height: 240px;
   flex-shrink: 0;
+  margin-left: 0.25rem;
   background: var(--surface);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-lg);
-  padding: 0.5rem 0.75rem 0.25rem;
+  padding: 0.65rem 0.85rem 0.35rem;
   box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
 }
 
 .dashboard-pass-fail-title {
@@ -1376,7 +1372,12 @@ tfoot .aggregate-total-row:hover td {
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  margin-bottom: 0.25rem;
+  margin-bottom: 0.15rem;
+}
+
+.dashboard-pass-fail-empty {
+  margin: auto;
+  padding: 1rem 0;
 }
 
 .dashboard-details-grid {
@@ -1420,6 +1421,5 @@ tfoot .aggregate-total-row:hover td {
   .sidebar-nav a { border-left: none; border-radius: var(--radius); padding: 0.5rem 0.75rem; }
   .sidebar-nav a.active { border-left: none; }
   .grid-2, .grid-3 { grid-template-columns: 1fr; }
-  .dashboard-summary-row { flex-direction: column; }
-  .dashboard-pass-fail-chart { width: 100%; }
+  .dashboard-pass-fail-chart { width: 100%; margin-left: 0; }
 }

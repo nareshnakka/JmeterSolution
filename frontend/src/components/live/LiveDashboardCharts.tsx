@@ -397,18 +397,17 @@ export const PassFailPieChart = memo(function PassFailPieChart({
     <div className="dashboard-pass-fail-chart" aria-label="Pass and fail percentage">
       <div className="dashboard-pass-fail-title">Pass / Fail</div>
       {data.length > 0 ? (
-        <ResponsiveContainer width="100%" height={150}>
-          <PieChart>
+        <ResponsiveContainer width="100%" height={210}>
+          <PieChart margin={{ top: 4, right: 12, bottom: 4, left: 12 }}>
             <Pie
               data={data}
               dataKey="value"
               nameKey="name"
               cx="50%"
-              cy="50%"
-              innerRadius={34}
-              outerRadius={56}
+              cy="46%"
+              innerRadius={48}
+              outerRadius={72}
               paddingAngle={2}
-              label={({ name, pct }) => `${name} ${pct.toFixed(1)}%`}
               isAnimationActive={false}
             >
               {data.map((entry) => (
@@ -425,10 +424,17 @@ export const PassFailPieChart = memo(function PassFailPieChart({
                 border: `1px solid ${chartTheme.tooltipBorder}`,
               }}
             />
+            <Legend
+              verticalAlign="bottom"
+              formatter={(value, entry) => {
+                const pct = Number((entry.payload as { pct?: number } | undefined)?.pct ?? 0)
+                return `${value} ${pct.toFixed(1)}%`
+              }}
+            />
           </PieChart>
         </ResponsiveContainer>
       ) : (
-        <p className="empty" style={{ margin: '2rem 0' }}>No samples yet</p>
+        <p className="empty dashboard-pass-fail-empty">No samples yet</p>
       )}
     </div>
   )
