@@ -9,6 +9,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.models import AppNotification
+from app.services.host_resource_alerts import CPU_THRESHOLD_PERCENT, MEMORY_THRESHOLD_PERCENT
 
 
 def create_notification(
@@ -92,6 +93,58 @@ def notify_test_run_finished(
         title=title,
         message=message,
         payload={"run_id": run_id, "scenario_name": scenario_name, "status": status},
+        dedupe_key=f"{kind}:{run_id}",
+    )
+
+
+def notify_host_resource_alert(
+    db: Session,
+    *,
+    run_id: int,
+    kind: str,
+    cpu_percent: float | None = None,
+    memory_percent: float | None = None,
+    duration_seconds: int,
+    scenario_name: str = "",
+) -> None:
+    if kind == "host_cpu_high":
+        title = "High host CPU usage"
+        current = f"{cpu_percent:.1f}%" if cpu_percent is not None else "high"
+        scenario = f'"{scenario_name}" ' if scenario_name else ""
+        message = (
+            f"{scenario}(run #{run_id}): Host CPU above {CPU_THRESHOLD_PERCENT:.0f}% "
+            f"for over {duration_seconds // 60} minute(s) (current: {current})."
+        )
+        payload = {
+            "run_id": run_id,
+            "scenario_name": scenario_name,
+            "cpu_percent": cpu_percent,
+            "duration_seconds": duration_seconds,
+        }
+    elif kind == "host_memory_high":
+        title = "High host memory usage"
+        current = f"{memory_percent:.1f}%" if memory_percent is not None else "high"
+        scenario = f'"{scenario_name}" ' if scenario_name else ""
+        minutes = duration_seconds // 60
+        message = (
+            f"{scenario}(run #{run_id}): Host memory above {MEMORY_THRESHOLD_PERCENT:.0f}% "
+            f"for over {minutes} minute(s) (current: {current})."
+        )
+        payload = {
+            "run_id": run_id,
+            "scenario_name": scenario_name,
+            "memory_percent": memory_percent,
+            "duration_seconds": duration_seconds,
+        }
+    else:
+        return
+
+    create_notification(
+        db,
+        kind=kind,
+        title=title,
+        message=message,
+        payload=payload,
         dedupe_key=f"{kind}:{run_id}",
     )
 

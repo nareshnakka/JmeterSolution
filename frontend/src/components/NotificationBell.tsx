@@ -5,6 +5,7 @@ import type { AppNotification } from '../types'
 
 function kindIcon(kind: string) {
   if (kind.startsWith('test_')) return '●'
+  if (kind.startsWith('host_')) return '⚠'
   if (kind.startsWith('update_')) return '↑'
   return 'i'
 }

@@ -31,7 +31,7 @@ def _to_notification_out(note) -> AppNotificationOut:
                 "version": payload.get("latest_version"),
             }
         )
-    elif note.kind in ("test_completed", "test_failed", "test_cancelled") and payload:
+    elif note.kind in ("test_completed", "test_failed", "test_cancelled", "host_cpu_high", "host_memory_high") and payload:
         run_id = payload.get("run_id")
         if run_id:
             actions.append({"type": "view_run", "label": "View Results", "run_id": run_id})

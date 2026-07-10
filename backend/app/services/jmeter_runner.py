@@ -14,6 +14,13 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import SessionLocal
 from app.models import Application, Build, Release, Scenario, TestRun, TestRunStatus
+from app.services.app_notifications import notify_host_resource_alert
+from app.services.host_resource_alerts import (
+    CPU_DURATION_SECONDS,
+    HostResourceAlertState,
+    MEMORY_DURATION_SECONDS,
+    evaluate_host_resource_alerts,
+)
 from app.services.jtl_parser import MetricsAggregator, append_jtl_file, parse_jtl_file
 from app.scenario_properties import jmeter_cli_args, parse_jmeter_properties
 from app.services.host_resources import (
@@ -47,6 +54,7 @@ class RunManager:
         self._jmeter_pids: dict[int, int] = {}
         self._tail_tasks: dict[int, asyncio.Task] = {}
         self._resource_tasks: dict[int, asyncio.Task] = {}
+        self._resource_alert_state: dict[int, HostResourceAlertState] = {}
         self._ws_subscribers: dict[int, set] = defaultdict(set)
         self._lock = threading.Lock()
 
@@ -237,15 +245,48 @@ class RunManager:
                 db.close()
 
         loop = asyncio.get_event_loop()
+        alert_state = self._resource_alert_state.setdefault(run_id, HostResourceAlertState())
         try:
             while self._is_run_active(run_id, proc):
-                await loop.run_in_executor(
+                sample = await loop.run_in_executor(
                     None, append_host_sample, run_path, started_at, samples, interval
                 )
+                alert_kinds = evaluate_host_resource_alerts(
+                    alert_state,
+                    cpu_percent=float(sample["cpu_percent"]),
+                    memory_percent=float(sample["memory_percent"]),
+                    interval_seconds=interval,
+                )
+                if alert_kinds:
+                    db = SessionLocal()
+                    try:
+                        test_run = db.get(TestRun, run_id)
+                        scenario_name = ""
+                        if test_run and test_run.scenario_id:
+                            scenario = db.get(Scenario, test_run.scenario_id)
+                            if scenario:
+                                scenario_name = scenario.name
+                        for kind in alert_kinds:
+                            notify_host_resource_alert(
+                                db,
+                                run_id=run_id,
+                                kind=kind,
+                                cpu_percent=sample.get("cpu_percent"),
+                                memory_percent=sample.get("memory_percent"),
+                                duration_seconds=(
+                                    CPU_DURATION_SECONDS
+                                    if kind == "host_cpu_high"
+                                    else MEMORY_DURATION_SECONDS
+                                ),
+                                scenario_name=scenario_name,
+                            )
+                    finally:
+                        db.close()
                 await asyncio.sleep(interval)
         except asyncio.CancelledError:
             pass
         finally:
+            self._resource_alert_state.pop(run_id, None)
             if samples:
                 save_host_resources(run_path, samples, interval)
 
@@ -427,6 +468,7 @@ class RunManager:
         self._processes.pop(run_id, None)
         self._jmeter_pids.pop(run_id, None)
         self._aggregators.pop(run_id, None)
+        self._resource_alert_state.pop(run_id, None)
         self._ws_subscribers.pop(run_id, None)
 
 
