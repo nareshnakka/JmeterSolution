@@ -531,19 +531,22 @@ export default function LiveDashboard() {
       {(run || metrics) && (
         <div className="dashboard-stat-row">
           <div className="stat stat-run-times">
-            <div className="stat-run-time-row">
-              <span className="stat-run-time-label">Start</span>
-              <span className="stat-run-time-value">{startTimeDisplay}</span>
-            </div>
-            <div className="stat-run-time-row">
-              <span className="stat-run-time-label">End</span>
-              <span className="stat-run-time-value">{endTimeDisplay}</span>
+            <div className="label">Run Times</div>
+            <div className="stat-run-time-rows">
+              <div className="stat-run-time-row">
+                <span className="stat-run-time-label">Start</span>
+                <span className="stat-run-time-value">{startTimeDisplay}</span>
+              </div>
+              <div className="stat-run-time-row">
+                <span className="stat-run-time-label">End</span>
+                <span className="stat-run-time-value">{endTimeDisplay}</span>
+              </div>
             </div>
           </div>
-          <div className="stat"><div className="value">{metrics ? displayActiveThreads : '—'}</div><div className="label">Active Users</div></div>
-          <div className="stat"><div className="value">{metrics?.total_samples ?? '—'}</div><div className="label">Samples</div></div>
-          <div className="stat"><div className="value">{metrics?.total_errors ?? '—'}</div><div className="label">Errors</div></div>
-          <div className="stat"><div className="value">{metrics ? elapsedDisplay : '—'}</div><div className="label">Elapsed</div></div>
+          <div className="stat"><div className="label">Active Users</div><div className="value">{metrics ? displayActiveThreads : '—'}</div></div>
+          <div className="stat"><div className="label">Samples</div><div className="value">{metrics?.total_samples ?? '—'}</div></div>
+          <div className="stat"><div className="label">Errors</div><div className="value">{metrics?.total_errors ?? '—'}</div></div>
+          <div className="stat"><div className="label">Elapsed</div><div className="value">{metrics ? elapsedDisplay : '—'}</div></div>
           {metrics ? (
             <PassFailPieChart
               totalSamples={metrics.total_samples}
