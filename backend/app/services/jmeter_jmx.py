@@ -39,14 +39,14 @@ def _save_config_element() -> ET.Element:
         "dataType": True,
         "encoding": False,
         "assertions": True,
-        "subresults": False,
+        "subresults": True,
         "responseData": True,
         "samplerData": True,
         "xml": False,
         "fieldNames": True,
         "responseHeaders": True,
         "requestHeaders": True,
-        "responseDataOnError": False,
+        "responseDataOnError": True,
         "saveAssertionResultsFailureMessage": True,
         "assertionsResultsToSave": "0",
         "bytes": True,
@@ -79,6 +79,7 @@ def _error_trace_listener(error_jtl: Path) -> ET.Element:
         },
     )
     collector.append(_bool_prop("ResultCollector.error_logging", True))
+    collector.append(_bool_prop("ResultCollector.success_logging", False))
     collector.append(_save_config_element())
     collector.append(_string_prop("filename", str(error_jtl.resolve())))
     return collector

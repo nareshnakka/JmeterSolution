@@ -592,13 +592,41 @@ def _samples_match_for_trace(ref: Sample, candidate: Sample) -> bool:
     )
 
 
+def _sample_has_trace_payload(sample: Sample) -> bool:
+    return bool(
+        (sample.response_data or "").strip()
+        or (sample.sampler_data or "").strip()
+        or (sample.response_headers or "").strip()
+        or (sample.request_headers or "").strip()
+    )
+
+
+def _merge_error_detail(primary: ErrorDetailOut, fallback: ErrorDetailOut) -> ErrorDetailOut:
+    """Fill missing trace fields from the main JTL row."""
+    updates: dict[str, Any] = {}
+    if not primary.response_body and fallback.response_body:
+        updates["response_body"] = fallback.response_body
+    if not primary.request_body and fallback.request_body:
+        updates["request_body"] = fallback.request_body
+    if not primary.response_headers and fallback.response_headers:
+        updates["response_headers"] = fallback.response_headers
+    if not primary.request_headers and fallback.request_headers:
+        updates["request_headers"] = fallback.request_headers
+    if not primary.url and fallback.url:
+        updates["url"] = fallback.url
+    if updates:
+        return primary.model_copy(update=updates)
+    return primary
+
+
 def find_matching_trace_sample(trace_jtl: str | Path, ref: Sample) -> Sample | None:
-    """Find the matching failed sample row in errors-trace.jtl."""
+    """Find the best failed sample row in errors-trace.jtl (exact or child HTTP sample)."""
     path = Path(trace_jtl)
     if not path.is_file():
         return None
 
-    match: Sample | None = None
+    exact: Sample | None = None
+    loose: Sample | None = None
     with open(path, encoding="utf-8", errors="replace") as f:
         reader = csv.reader(f)
         try:
@@ -611,8 +639,23 @@ def find_matching_trace_sample(trace_jtl: str | Path, ref: Sample) -> Sample | N
             if sample is None or sample.success:
                 continue
             if _samples_match_for_trace(ref, sample):
-                match = sample
-    return match
+                exact = sample
+                if _sample_has_trace_payload(sample):
+                    return sample
+            elif (
+                sample.timestamp_ms == ref.timestamp_ms
+                and sample.thread_name == ref.thread_name
+            ):
+                if loose is None or (
+                    _sample_has_trace_payload(sample) and not _sample_has_trace_payload(loose)
+                ):
+                    loose = sample
+
+    if exact is not None and _sample_has_trace_payload(exact):
+        return exact
+    if loose is not None and _sample_has_trace_payload(loose):
+        return loose
+    return exact or loose
 
 
 def get_error_detail_from_jtl(path: str | Path, sample_index: int) -> ErrorDetailOut | None:
@@ -639,7 +682,8 @@ def get_error_detail_with_trace(
         if trace_sample is not None:
             detail = sample_to_error_detail(trace_sample, from_errors_trace=True)
             detail.sample_index = main_sample.sample_index
-            return detail
+            main_detail = sample_to_error_detail(main_sample)
+            return _merge_error_detail(detail, main_detail)
 
     return sample_to_error_detail(main_sample)
 

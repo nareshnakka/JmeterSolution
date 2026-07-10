@@ -152,15 +152,14 @@ class RunManager:
             cmd.extend([
                 "-Jjmeter.save.saveservice.output_format=csv",
                 "-Jjmeter.save.saveservice.autoflush=true",
-                "-Jjmeter.save.saveservice.response_data=false",
+                # Capture response bodies on failed samples (main JTL + error trace listener).
                 "-Jjmeter.save.saveservice.response_data.on_error=true",
-                "-Jjmeter.save.saveservice.response_data.max_size=1048576",
-                "-Jjmeter.save.saveservice.responseHeaders=false",
-                "-Jjmeter.save.saveservice.requestHeaders=false",
+                "-Jjmeter.save.saveservice.response_data.max_size=2097152",
                 "-Jjmeter.save.saveservice.assertion_results_failure_message=true",
                 "-Jjmeter.save.saveservice.url=true",
                 "-Jjmeter.save.saveservice.sample_type=true",
                 "-Jjmeter.save.saveservice.subresults=false",
+                "-Jjmeter.save.saveservice.default_encoding=UTF-8",
                 f"-JRUN_DIR={run_path}",
                 f"-JRUN_ID={test_run.id}",
                 f"-JJTL_PATH={jtl}",

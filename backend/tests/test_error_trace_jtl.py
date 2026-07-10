@@ -36,6 +36,9 @@ def test_prepare_jmx_injects_error_trace_listener():
         content = prepared.read_text(encoding="utf-8")
         assert "JmeterAgent Error Trace" in content
         assert "ResultCollector.error_logging" in content
+        assert "ResultCollector.success_logging" in content
+        assert "<subresults>true</subresults>" in content
+        assert "<responseDataOnError>true</responseDataOnError>" in content
         assert str(error_jtl.resolve()) in content
         assert content.count("responseHeaders") >= 1
 
@@ -91,3 +94,30 @@ def test_find_matching_trace_sample():
         match = find_matching_trace_sample(trace_jtl, ref)
         assert match is not None
         assert match.label == "GET /api"
+
+
+def test_find_matching_trace_sample_falls_back_to_child_with_body():
+    ref = Sample(
+        sample_index=1,
+        timestamp_ms=2000,
+        elapsed_ms=50,
+        label="Login Transaction",
+        response_code="500",
+        response_message="Number of samples in transaction : 1",
+        thread_name="TG 1-2",
+        success=False,
+        failure_message="failed",
+    )
+    header = (
+        "timeStamp,elapsed,label,responseCode,responseMessage,threadName,"
+        "dataType,success,failureMessage,responseData\n"
+    )
+    parent_row = "2000,50,Login Transaction,500,Number of samples in transaction : 1,TG 1-2,,false,failed,\n"
+    child_row = '2000,45,GET /login,500,Server Error,TG 1-2,text,false,,"Error HTML body"\n'
+
+    with tempfile.TemporaryDirectory() as tmp:
+        trace_jtl = Path(tmp) / "errors-trace.jtl"
+        trace_jtl.write_text(header + parent_row + child_row, encoding="utf-8")
+        match = find_matching_trace_sample(trace_jtl, ref)
+        assert match is not None
+        assert match.response_data == "Error HTML body"
