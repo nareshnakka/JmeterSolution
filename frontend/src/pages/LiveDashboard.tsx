@@ -15,6 +15,7 @@ import {
 import { useToast } from '../components/Toast'
 import type { ErrorSample, LiveMetrics, TestRun, TransactionMetric, TransactionTotals } from '../types'
 import { timelineScaleForSeconds } from '../utils/timeline'
+import { formatLocalDateTime } from '../utils/datetime'
 import { computeTransactionTotals, metricToTotals } from '../utils/transactionTotals'
 import { filterTransactionsByKind } from '../utils/transactionKind'
 import { defaultSortDir, sortTransactions, type AggregateSortField, type SortDir } from '../utils/sortTransactions'
@@ -442,6 +443,17 @@ export default function LiveDashboard() {
     !isTerminalStatus(liveStatus) &&
     (liveStatus === 'running' || liveStatus === 'pending')
 
+  const startTimeDisplay = useMemo(
+    () => formatLocalDateTime(run?.started_at),
+    [run?.started_at]
+  )
+
+  const endTimeDisplay = useMemo(() => {
+    if (run?.finished_at) return formatLocalDateTime(run.finished_at)
+    if (isRunning) return 'In progress'
+    return '—'
+  }, [run?.finished_at, isRunning])
+
   const toggleLabel = useCallback((label: string) => {
     setSelectedLabels((prev) => {
       const next = new Set(prev)
@@ -516,16 +528,33 @@ export default function LiveDashboard() {
         )}
       </div>
 
-      {metrics && (
+      {(run || metrics) && (
         <div className="dashboard-stat-row">
-          <div className="stat"><div className="value">{displayActiveThreads}</div><div className="label">Active Users</div></div>
-          <div className="stat"><div className="value">{metrics.total_samples}</div><div className="label">Samples</div></div>
-          <div className="stat"><div className="value">{metrics.total_errors}</div><div className="label">Errors</div></div>
-          <div className="stat"><div className="value">{elapsedDisplay}</div><div className="label">Elapsed</div></div>
-          <PassFailPieChart
-            totalSamples={metrics.total_samples}
-            totalErrors={metrics.total_errors}
-          />
+          <div className="stat stat-run-times">
+            <div className="stat-run-time-row">
+              <span className="stat-run-time-label">Start</span>
+              <span className="stat-run-time-value">{startTimeDisplay}</span>
+            </div>
+            <div className="stat-run-time-row">
+              <span className="stat-run-time-label">End</span>
+              <span className="stat-run-time-value">{endTimeDisplay}</span>
+            </div>
+          </div>
+          <div className="stat"><div className="value">{metrics ? displayActiveThreads : '—'}</div><div className="label">Active Users</div></div>
+          <div className="stat"><div className="value">{metrics?.total_samples ?? '—'}</div><div className="label">Samples</div></div>
+          <div className="stat"><div className="value">{metrics?.total_errors ?? '—'}</div><div className="label">Errors</div></div>
+          <div className="stat"><div className="value">{metrics ? elapsedDisplay : '—'}</div><div className="label">Elapsed</div></div>
+          {metrics ? (
+            <PassFailPieChart
+              totalSamples={metrics.total_samples}
+              totalErrors={metrics.total_errors}
+            />
+          ) : (
+            <div className="stat dashboard-pass-fail-chart dashboard-pass-fail-placeholder">
+              <div className="dashboard-pass-fail-title">Pass / Fail</div>
+              <p className="empty dashboard-pass-fail-empty">Waiting…</p>
+            </div>
+          )}
         </div>
       )}
 
