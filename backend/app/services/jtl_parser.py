@@ -60,6 +60,7 @@ class Sample:
     response_data: str = ""
     response_headers: str = ""
     request_headers: str = ""
+    sampler_data: str = ""
 
 
 def _sample_kind(sample: Sample) -> str:
@@ -509,6 +510,7 @@ def _sample_from_row(row: list[str], header: dict[str, int], sample_index: int) 
             response_data=_col(row, header, "responseData"),
             response_headers=_col(row, header, "responseHeaders"),
             request_headers=_col(row, header, "requestHeaders"),
+            sampler_data=_col(row, header, "samplerData"),
         )
     except ValueError:
         return None
@@ -543,8 +545,9 @@ def get_sample_from_jtl(path: str | Path, sample_index: int) -> Sample | None:
     return None
 
 
-def sample_to_error_detail(sample: Sample) -> ErrorDetailOut:
+def sample_to_error_detail(sample: Sample, *, from_errors_trace: bool = False) -> ErrorDetailOut:
     body = sample.response_data.strip() if sample.response_data else None
+    request_body = sample.sampler_data.strip() if sample.sampler_data else None
     return ErrorDetailOut(
         sample_index=sample.sample_index,
         timestamp=sample.timestamp_ms,
@@ -558,7 +561,41 @@ def sample_to_error_detail(sample: Sample) -> ErrorDetailOut:
         response_body=body or None,
         response_headers=sample.response_headers.strip() or None,
         request_headers=sample.request_headers.strip() or None,
+        request_body=request_body or None,
+        from_errors_trace=from_errors_trace,
     )
+
+
+def _samples_match_for_trace(ref: Sample, candidate: Sample) -> bool:
+    return (
+        ref.timestamp_ms == candidate.timestamp_ms
+        and ref.label == candidate.label
+        and ref.thread_name == candidate.thread_name
+        and ref.response_code == candidate.response_code
+    )
+
+
+def find_matching_trace_sample(trace_jtl: str | Path, ref: Sample) -> Sample | None:
+    """Find the matching failed sample row in errors-trace.jtl."""
+    path = Path(trace_jtl)
+    if not path.is_file():
+        return None
+
+    match: Sample | None = None
+    with open(path, encoding="utf-8", errors="replace") as f:
+        reader = csv.reader(f)
+        try:
+            header_row = next(reader)
+        except StopIteration:
+            return None
+        header = {name.strip(): index for index, name in enumerate(header_row)}
+        for idx, row in enumerate(reader):
+            sample = _sample_from_row(row, header, idx)
+            if sample is None or sample.success:
+                continue
+            if _samples_match_for_trace(ref, sample):
+                match = sample
+    return match
 
 
 def get_error_detail_from_jtl(path: str | Path, sample_index: int) -> ErrorDetailOut | None:
@@ -566,6 +603,28 @@ def get_error_detail_from_jtl(path: str | Path, sample_index: int) -> ErrorDetai
     if sample is None or sample.success:
         return None
     return sample_to_error_detail(sample)
+
+
+def get_error_detail_with_trace(
+    main_jtl: str | Path | None,
+    trace_jtl: str | Path | None,
+    sample_index: int,
+) -> ErrorDetailOut | None:
+    """Resolve error detail from errors-trace.jtl when available, else results.jtl."""
+    if main_jtl is None:
+        return None
+    main_sample = get_sample_from_jtl(main_jtl, sample_index)
+    if main_sample is None or main_sample.success:
+        return None
+
+    if trace_jtl:
+        trace_sample = find_matching_trace_sample(trace_jtl, main_sample)
+        if trace_sample is not None:
+            detail = sample_to_error_detail(trace_sample, from_errors_trace=True)
+            detail.sample_index = main_sample.sample_index
+            return detail
+
+    return sample_to_error_detail(main_sample)
 
 
 def search_errors_from_jtl(

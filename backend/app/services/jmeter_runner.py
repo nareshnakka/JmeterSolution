@@ -28,6 +28,7 @@ from app.services.process_utils import (
     kill_process_tree,
     resolve_jmeter_pid,
 )
+from app.services.jmeter_jmx import prepare_jmx_with_error_trace
 from app.services.storage import (
     collect_run_artifacts,
     migrate_legacy_dependencies,
@@ -133,6 +134,8 @@ class RunManager:
             console_log = run_path / "jmeter-console.log"
             scripts_dir = scenario_scripts_dir(release, build, app)
 
+            prepared_jmx, error_trace_jtl = prepare_jmx_with_error_trace(jmx, run_path)
+
             test_run.run_dir = str(run_path)
             test_run.jtl_path = str(jtl)
             test_run.log_path = str(log_file)
@@ -141,7 +144,7 @@ class RunManager:
             cmd = [
                 str(settings.jmeter_bin),
                 "-n",
-                "-t", str(jmx),
+                "-t", str(prepared_jmx),
                 "-l", str(jtl),
                 "-j", str(log_file),
             ]
@@ -161,6 +164,7 @@ class RunManager:
                 f"-JRUN_DIR={run_path}",
                 f"-JRUN_ID={test_run.id}",
                 f"-JJTL_PATH={jtl}",
+                f"-JERROR_TRACE_JTL={error_trace_jtl}",
                 f"-JJMETER_LOG={log_file}",
             ])
 

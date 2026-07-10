@@ -11,6 +11,7 @@ from app.services.system_config import archive_root
 
 ARCHIVE_ZIP_SUFFIX = ".zip"
 COMMON_JTL = "results.jtl"
+COMMON_ERROR_TRACE_JTL = "errors-trace.jtl"
 COMMON_LOG = "jmeter.log"
 
 
@@ -112,6 +113,10 @@ def resolve_jtl_path(run: TestRun) -> Path | None:
         if jtl.is_file():
             return jtl
     return resolve_run_file(run, COMMON_JTL)
+
+
+def resolve_errors_trace_jtl_path(run: TestRun) -> Path | None:
+    return resolve_run_file(run, COMMON_ERROR_TRACE_JTL)
 
 
 def resolve_log_path(run: TestRun) -> Path | None:

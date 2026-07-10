@@ -818,6 +818,7 @@ export default function LiveDashboard() {
           <h2>Artifacts</h2>
           <div className="toolbar">
             <a href={api.downloadUrl(id, 'results.jtl')} className="btn btn-secondary">Download JTL</a>
+            <a href={api.downloadUrl(id, 'errors-trace.jtl')} className="btn btn-secondary">Download Error Trace JTL</a>
             <a href={api.downloadUrl(id, 'jmeter.log')} className="btn btn-secondary">Download Log</a>
           </div>
           <p style={{ fontSize: '0.8125rem', color: 'var(--muted)' }}>

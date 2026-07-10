@@ -246,6 +246,8 @@ export interface ErrorDetail {
   response_body?: string | null
   response_headers?: string | null
   request_headers?: string | null
+  request_body?: string | null
+  from_errors_trace?: boolean
 }
 
 export interface LiveMetrics {

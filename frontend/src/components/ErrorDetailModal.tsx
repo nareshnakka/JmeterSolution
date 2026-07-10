@@ -44,7 +44,9 @@ export default function ErrorDetailModal({ runId, error, onClose }: ErrorDetailM
     return null
   }, [detail, error.failure_message])
 
+  const requestBody = detail?.request_body?.trim() || null
   const hasHeaders = Boolean(detail?.request_headers?.trim() || detail?.response_headers?.trim())
+  const hasTrace = Boolean(detail?.from_errors_trace)
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -63,6 +65,12 @@ export default function ErrorDetailModal({ runId, error, onClose }: ErrorDetailM
         ) : (
           <>
             {loadError && <p className="modal-error">{loadError}</p>}
+
+            {hasTrace && (
+              <p className="modal-current-file" style={{ marginBottom: '0.75rem' }}>
+                Full request/response trace loaded from <strong>errors-trace.jtl</strong>.
+              </p>
+            )}
 
             <div className="error-detail-meta">
               <DetailRow label="Sample #" value={String(error.sample_index)} />
@@ -90,6 +98,13 @@ export default function ErrorDetailModal({ runId, error, onClose }: ErrorDetailM
               </>
             )}
 
+            {requestBody && (
+              <>
+                <h3 className="error-detail-section">Request body</h3>
+                <pre className="error-detail-body">{requestBody}</pre>
+              </>
+            )}
+
             {detail?.response_headers && (
               <>
                 <h3 className="error-detail-section">Response headers</h3>
@@ -104,14 +119,23 @@ export default function ErrorDetailModal({ runId, error, onClose }: ErrorDetailM
               <p className="modal-current-file">
                 No response body was captured for this error.
                 {hasHeaders
-                  ? ' Response headers are available above.'
-                  : ' Run a new test to capture response data on failed samples (enabled automatically).'}
+                  ? ' Headers are available above.'
+                  : hasTrace
+                    ? ' The error trace file did not include a response body for this sample.'
+                    : ' Run a new test to capture full error traces (errors-trace.jtl).'}
               </p>
             )}
           </>
         )}
 
         <div className="modal-actions">
+          <a
+            href={api.downloadUrl(runId, 'errors-trace.jtl')}
+            className="btn btn-secondary"
+            download
+          >
+            Download errors-trace.jtl
+          </a>
           <button type="button" className="btn btn-secondary" onClick={onClose}>
             Close
           </button>

@@ -36,14 +36,17 @@ from app.services.jmeter_runner import run_manager
 from app.services.host_resources import load_host_resources
 from app.services.system_config import get_system_config
 from app.services.jtl_parser import (
-    get_error_detail_from_jtl,
+    find_matching_trace_sample,
+    get_error_detail_with_trace,
     parse_jtl_file,
+    sample_to_error_detail,
     search_errors_from_jtl,
 )
 from app.services.run_artifacts import (
     ensure_run_directory,
     remove_run_artifacts,
     resolve_jtl_path,
+    resolve_errors_trace_jtl_path,
     resolve_log_path,
     resolve_run_file,
 )
@@ -460,18 +463,26 @@ def get_run_error_detail(run_id: int, sample_index: int, db: Session = Depends(g
     run = db.get(TestRun, run_id)
     if not run:
         raise HTTPException(404, "Test run not found")
-    jtl = resolve_jtl_path(run)
-    if jtl:
-        detail = get_error_detail_from_jtl(jtl, sample_index)
-        if detail:
-            return detail
+
+    main_jtl = resolve_jtl_path(run)
+    trace_jtl = resolve_errors_trace_jtl_path(run)
+    detail = get_error_detail_with_trace(main_jtl, trace_jtl, sample_index)
+    if detail:
+        return detail
+
     agg = _aggregator_for_run(run)
-    if not agg:
-        raise HTTPException(404, "No error data available")
-    detail = agg.get_error_detail(sample_index)
-    if not detail:
-        raise HTTPException(404, "Error sample not found")
-    return detail
+    if agg and 0 <= sample_index < len(agg.samples):
+        main_sample = agg.samples[sample_index]
+        if not main_sample.success:
+            if trace_jtl:
+                trace_sample = find_matching_trace_sample(trace_jtl, main_sample)
+                if trace_sample is not None:
+                    out = sample_to_error_detail(trace_sample, from_errors_trace=True)
+                    out.sample_index = sample_index
+                    return out
+            return sample_to_error_detail(main_sample)
+
+    raise HTTPException(404, "Error sample not found")
 
 
 @router.get("/{run_id}/errors", response_model=list[ErrorSample])

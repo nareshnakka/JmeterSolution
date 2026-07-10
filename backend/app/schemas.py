@@ -335,6 +335,8 @@ class ErrorDetailOut(BaseModel):
     response_body: str | None = None
     response_headers: str | None = None
     request_headers: str | None = None
+    request_body: str | None = None
+    from_errors_trace: bool = False
 
 
 class LiveMetricsSnapshot(BaseModel):
