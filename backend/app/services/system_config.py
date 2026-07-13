@@ -51,6 +51,10 @@ def normalize_aggregate_filter(value: str) -> str:
     return value.strip()
 
 
+def normalize_aggregate_exclude_list(value: str) -> str:
+    return value.strip()
+
+
 def get_system_config(db: Session) -> SystemConfig:
     cfg = db.get(SystemConfig, 1)
     if cfg is None:
@@ -64,6 +68,7 @@ def get_system_config(db: Session) -> SystemConfig:
             live_dashboard_refresh_interval_seconds=DEFAULT_LIVE_DASHBOARD_REFRESH_INTERVAL_SECONDS,
             aggregate_total_avg_title=DEFAULT_AGGREGATE_TOTAL_AVG_TITLE,
             aggregate_total_avg_filter="",
+            aggregate_total_avg_exclude="",
             aggregate_load_avg_title=DEFAULT_AGGREGATE_LOAD_AVG_TITLE,
             aggregate_load_avg_filter=DEFAULT_AGGREGATE_LOAD_AVG_FILTER,
             aggregate_submit_avg_title=DEFAULT_AGGREGATE_SUBMIT_AVG_TITLE,
@@ -87,6 +92,7 @@ def update_system_config(
     live_dashboard_refresh_interval_seconds: int,
     aggregate_total_avg_title: str,
     aggregate_total_avg_filter: str,
+    aggregate_total_avg_exclude: str,
     aggregate_load_avg_title: str,
     aggregate_load_avg_filter: str,
     aggregate_submit_avg_title: str,
@@ -115,6 +121,7 @@ def update_system_config(
         fallback=DEFAULT_AGGREGATE_TOTAL_AVG_TITLE,
     )
     cfg.aggregate_total_avg_filter = normalize_aggregate_filter(aggregate_total_avg_filter)
+    cfg.aggregate_total_avg_exclude = normalize_aggregate_exclude_list(aggregate_total_avg_exclude)
     cfg.aggregate_load_avg_title = normalize_aggregate_title(
         aggregate_load_avg_title,
         fallback=DEFAULT_AGGREGATE_LOAD_AVG_TITLE,

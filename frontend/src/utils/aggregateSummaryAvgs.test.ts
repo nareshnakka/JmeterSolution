@@ -77,4 +77,33 @@ describe('computeAggregateSummaryAvgs', () => {
     expect(result[1].avg_ms).toBe(120)
     expect(result[2].avg_ms).toBe(180)
   })
+
+  it('excludes configured labels from total avg only', () => {
+    const rows = [
+      tx('Home_L_Page', 100, 10),
+      tx('Home_L_Init', 300, 10),
+      tx('Home_S_Form', 200, 10),
+    ]
+    const result = computeAggregateSummaryAvgs(rows, {
+      ...DEFAULT_AGGREGATE_SUMMARY_CONFIG,
+      aggregate_total_avg_exclude: 'Home_L_Init',
+    })
+    expect(result[0].avg_ms).toBe(150)
+    expect(result[1].avg_ms).toBe(200)
+    expect(result[2].avg_ms).toBe(200)
+  })
+
+  it('uses total avg filter when set and applies exclusions', () => {
+    const rows = [
+      tx('Home_L_Page', 100, 10),
+      tx('Home_S_Form', 200, 10),
+      tx('Home_S_Logout', 400, 10),
+    ]
+    const result = computeAggregateSummaryAvgs(rows, {
+      ...DEFAULT_AGGREGATE_SUMMARY_CONFIG,
+      aggregate_total_avg_filter: '_S_',
+      aggregate_total_avg_exclude: 'Logout',
+    })
+    expect(result[0].avg_ms).toBe(200)
+  })
 })

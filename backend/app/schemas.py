@@ -435,6 +435,7 @@ class SystemConfigOut(BaseModel):
     live_dashboard_refresh_interval_seconds: int
     aggregate_total_avg_title: str
     aggregate_total_avg_filter: str
+    aggregate_total_avg_exclude: str
     aggregate_load_avg_title: str
     aggregate_load_avg_filter: str
     aggregate_submit_avg_title: str
@@ -454,6 +455,7 @@ class SystemConfigUpdate(BaseModel):
     live_dashboard_refresh_interval_seconds: int = Field(default=10, ge=5, le=300)
     aggregate_total_avg_title: str = Field(default="Total Avg", min_length=1, max_length=128)
     aggregate_total_avg_filter: str = Field(default="", max_length=256)
+    aggregate_total_avg_exclude: str = Field(default="", max_length=2048)
     aggregate_load_avg_title: str = Field(default="Load Avg", min_length=1, max_length=128)
     aggregate_load_avg_filter: str = Field(default="_L_", max_length=256)
     aggregate_submit_avg_title: str = Field(default="Submit Avg", min_length=1, max_length=128)

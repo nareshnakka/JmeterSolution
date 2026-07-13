@@ -66,6 +66,7 @@ def _migrate_schema() -> None:
         aggregate_columns = {
             "aggregate_total_avg_title": "VARCHAR(128) NOT NULL DEFAULT 'Total Avg'",
             "aggregate_total_avg_filter": "VARCHAR(256) NOT NULL DEFAULT ''",
+            "aggregate_total_avg_exclude": "VARCHAR(2048) NOT NULL DEFAULT ''",
             "aggregate_load_avg_title": "VARCHAR(128) NOT NULL DEFAULT 'Load Avg'",
             "aggregate_load_avg_filter": "VARCHAR(256) NOT NULL DEFAULT '_L_'",
             "aggregate_submit_avg_title": "VARCHAR(128) NOT NULL DEFAULT 'Submit Avg'",

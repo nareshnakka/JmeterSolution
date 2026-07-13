@@ -103,6 +103,8 @@ export default function LiveDashboard() {
             cfg.aggregate_total_avg_title ?? DEFAULT_AGGREGATE_SUMMARY_CONFIG.aggregate_total_avg_title,
           aggregate_total_avg_filter:
             cfg.aggregate_total_avg_filter ?? DEFAULT_AGGREGATE_SUMMARY_CONFIG.aggregate_total_avg_filter,
+          aggregate_total_avg_exclude:
+            cfg.aggregate_total_avg_exclude ?? DEFAULT_AGGREGATE_SUMMARY_CONFIG.aggregate_total_avg_exclude,
           aggregate_load_avg_title:
             cfg.aggregate_load_avg_title ?? DEFAULT_AGGREGATE_SUMMARY_CONFIG.aggregate_load_avg_title,
           aggregate_load_avg_filter:

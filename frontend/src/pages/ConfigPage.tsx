@@ -35,6 +35,7 @@ export default function ConfigPage() {
     live_dashboard_refresh_interval_seconds: 10,
     aggregate_total_avg_title: 'Total Avg',
     aggregate_total_avg_filter: '',
+    aggregate_total_avg_exclude: '',
     aggregate_load_avg_title: 'Load Avg',
     aggregate_load_avg_filter: '_L_',
     aggregate_submit_avg_title: 'Submit Avg',
@@ -64,6 +65,7 @@ export default function ConfigPage() {
       live_dashboard_refresh_interval_seconds: data.live_dashboard_refresh_interval_seconds,
       aggregate_total_avg_title: data.aggregate_total_avg_title ?? 'Total Avg',
       aggregate_total_avg_filter: data.aggregate_total_avg_filter ?? '',
+      aggregate_total_avg_exclude: data.aggregate_total_avg_exclude ?? '',
       aggregate_load_avg_title: data.aggregate_load_avg_title ?? 'Load Avg',
       aggregate_load_avg_filter: data.aggregate_load_avg_filter ?? '_L_',
       aggregate_submit_avg_title: data.aggregate_submit_avg_title ?? 'Submit Avg',
@@ -327,8 +329,9 @@ export default function ConfigPage() {
             <p className="config-section-hint">
               Shown on the Live Dashboard aggregate report before Export CSV. Each value is the
               average of the Avg (ms) column for matching transaction rows only (APIs/requests are
-              excluded). Label filters match substrings (case-insensitive). Total Avg uses the union
-              of Load and Submit filters (_L_ and _S_ by default).
+              excluded). Label filters match substrings (case-insensitive). Total Avg includes
+              transactions matching its filter (or Load ∪ Submit when empty), minus any excluded
+              labels listed below.
             </p>
             <div className="config-form-grid">
               <div className="form-row">
@@ -339,8 +342,31 @@ export default function ConfigPage() {
                   onChange={(e) => setForm({ ...form, aggregate_total_avg_title: e.target.value })}
                   required
                 />
+              </div>
+              <div className="form-row">
+                <label htmlFor="aggregate_total_avg_filter">Total Avg Label Filter</label>
+                <input
+                  id="aggregate_total_avg_filter"
+                  value={form.aggregate_total_avg_filter}
+                  onChange={(e) => setForm({ ...form, aggregate_total_avg_filter: e.target.value })}
+                  placeholder="Empty = Load ∪ Submit filters"
+                />
                 <span className="config-hint">
-                  Average of transactions matching the Load or Submit label filters below.
+                  Include only transaction labels matching this substring. Leave empty to use Load
+                  and Submit filters together.
+                </span>
+              </div>
+              <div className="form-row">
+                <label htmlFor="aggregate_total_avg_exclude">Total Avg Exclude Labels</label>
+                <textarea
+                  id="aggregate_total_avg_exclude"
+                  value={form.aggregate_total_avg_exclude}
+                  onChange={(e) => setForm({ ...form, aggregate_total_avg_exclude: e.target.value })}
+                  placeholder="Home_L_Init, Home_S_Logout"
+                  rows={3}
+                />
+                <span className="config-hint">
+                  Comma- or line-separated label substrings to remove from Total Avg (case-insensitive).
                 </span>
               </div>
               <div className="form-row">
