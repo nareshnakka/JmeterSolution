@@ -70,9 +70,35 @@ class Sample:
     response_headers: str = ""
     request_headers: str = ""
     sampler_data: str = ""
+    query_string: str = ""
 
 
-def _sample_kind(sample: Sample) -> str:
+def _http_message_body(text: str) -> str | None:
+    for sep in ("\r\n\r\n", "\n\n"):
+        if sep in text:
+            body = text.split(sep, 1)[1].strip()
+            if body:
+                return body
+    return None
+
+
+def _resolve_request_body(sample: Sample) -> str | None:
+    """Extract request payload from samplerData and/or JMeter queryString."""
+    candidates: list[str] = []
+    if sample.query_string.strip():
+        candidates.append(sample.query_string.strip())
+    if sample.sampler_data.strip():
+        candidates.append(sample.sampler_data.strip())
+
+    http_methods = ("GET ", "POST ", "PUT ", "PATCH ", "DELETE ", "HEAD ", "OPTIONS ", "TRACE ")
+    for text in candidates:
+        if text.upper().startswith(http_methods):
+            body = _http_message_body(text)
+            if body:
+                return body
+            continue
+        return text
+    return None
     """Classify JMeter samples: transaction controllers vs HTTP/API requests."""
     msg = (sample.response_message or "").lower()
     data_type = (sample.data_type or "").strip().lower()
@@ -615,6 +641,7 @@ def _sample_from_row(row: list[str], header: dict[str, int], sample_index: int) 
             response_headers=_col(row, header, "responseHeaders"),
             request_headers=_col(row, header, "requestHeaders"),
             sampler_data=_col(row, header, "samplerData"),
+            query_string=_col(row, header, "queryString"),
         )
     except ValueError:
         return None
@@ -651,7 +678,7 @@ def get_sample_from_jtl(path: str | Path, sample_index: int) -> Sample | None:
 
 def sample_to_error_detail(sample: Sample, *, from_errors_trace: bool = False) -> ErrorDetailOut:
     body = sample.response_data.strip() if sample.response_data else None
-    request_body = sample.sampler_data.strip() if sample.sampler_data else None
+    request_body = _resolve_request_body(sample)
     return ErrorDetailOut(
         sample_index=sample.sample_index,
         timestamp=sample.timestamp_ms,
@@ -683,6 +710,7 @@ def _sample_has_trace_payload(sample: Sample) -> bool:
     return bool(
         (sample.response_data or "").strip()
         or (sample.sampler_data or "").strip()
+        or (sample.query_string or "").strip()
         or (sample.response_headers or "").strip()
         or (sample.request_headers or "").strip()
     )
@@ -768,6 +796,7 @@ def _merge_sample_trace_fields(base: Sample, donor: Sample) -> Sample:
         response_headers=base.response_headers or donor.response_headers,
         request_headers=base.request_headers or donor.request_headers,
         sampler_data=base.sampler_data or donor.sampler_data,
+        query_string=base.query_string or donor.query_string,
     )
 
 
@@ -808,6 +837,7 @@ def _sample_from_xml_element(elem: ET.Element, sample_index: int) -> Sample | No
         response_headers=_xml_field_text(elem, "responseHeader", "responseHeaders"),
         request_headers=_xml_field_text(elem, "requestHeader", "requestHeaders"),
         sampler_data=_xml_field_text(elem, "samplerData"),
+        query_string=_xml_field_text(elem, "queryString"),
     )
     return _enrich_sample_from_descendants(elem, sample)
 

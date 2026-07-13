@@ -45,6 +45,7 @@ TRACE_XML_CHILD = """<?xml version="1.0" encoding="UTF-8"?>
     <httpSample t="45" lt="0" ts="2000" s="false"
          lb="GET /login" rc="500" rm="Server Error"
          tn="TG 1-2" dt="text">
+      <samplerData class="java.lang.String">{"user":"test"}</samplerData>
       <responseData class="java.lang.String">Error HTML body</responseData>
       <url>http://x/login</url>
     </httpSample>
@@ -145,6 +146,72 @@ def test_find_matching_trace_sample_falls_back_to_child_with_body():
         match = find_matching_trace_sample(trace_jtl, ref)
         assert match is not None
         assert match.response_data == "Error HTML body"
+        assert match.sampler_data == '{"user":"test"}'
+
+
+def test_resolve_request_body_from_query_string():
+    from app.services.jtl_parser import _resolve_request_body
+
+    sample = Sample(
+        sample_index=0,
+        timestamp_ms=1,
+        elapsed_ms=1,
+        label="POST",
+        response_code="400",
+        response_message="Bad",
+        thread_name="t",
+        success=False,
+        failure_message="",
+        query_string='{"id":123}',
+    )
+    assert _resolve_request_body(sample) == '{"id":123}'
+
+
+def test_resolve_request_body_from_http_sampler_data():
+    from app.services.jtl_parser import _resolve_request_body
+
+    sample = Sample(
+        sample_index=0,
+        timestamp_ms=1,
+        elapsed_ms=1,
+        label="POST",
+        response_code="400",
+        response_message="Bad",
+        thread_name="t",
+        success=False,
+        failure_message="",
+        sampler_data="POST /api HTTP/1.1\r\nHost: example.com\r\n\r\n{\"id\":123}",
+    )
+    assert _resolve_request_body(sample) == '{"id":123}'
+
+
+def test_get_error_detail_uses_query_string_as_request_body():
+    header = (
+        "timeStamp,elapsed,label,responseCode,responseMessage,threadName,"
+        "dataType,success,failureMessage,bytes,sentBytes,grpThreads,allThreads,"
+        "URL,Latency,IdleTime,Connect\n"
+    )
+    main_row = "4000,30,Create,400,Bad Request,TG 1-1,text,false,failed,0,0,1,1,http://x/api,0,0,0\n"
+    trace_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<testResults version="1.2">
+  <httpSample t="30" ts="4000" s="false" lb="Create" rc="400" rm="Bad Request" tn="TG 1-1" dt="text">
+    <queryString class="java.lang.String">{"name":"demo"}</queryString>
+    <requestHeader class="java.lang.String">Content-Type: application/json</requestHeader>
+    <responseData class="java.lang.String">invalid</responseData>
+    <java.net.URL>http://x/api</java.net.URL>
+  </httpSample>
+</testResults>
+"""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        main_jtl = root / "results.jtl"
+        trace_jtl = root / "errors-trace.jtl"
+        main_jtl.write_text(header + main_row, encoding="utf-8")
+        trace_jtl.write_text(trace_xml, encoding="utf-8")
+        detail = get_error_detail_with_trace(main_jtl, trace_jtl, 0)
+        assert detail is not None
+        assert detail.request_body == '{"name":"demo"}'
+        assert detail.request_headers == "Content-Type: application/json"
 
 
 def test_find_matching_trace_sample_java_net_url_and_base64():

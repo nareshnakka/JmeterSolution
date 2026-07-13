@@ -131,13 +131,11 @@ export default function ErrorDetailModal({ runId, error, onClose }: ErrorDetailM
               emptyMessage="No request headers were captured for this error."
             />
 
-            {requestBody && (
-              <TraceSection
-                title="Request body"
-                content={requestBody}
-                emptyMessage="No request body was captured for this error."
-              />
-            )}
+            <TraceSection
+              title="Request body"
+              content={requestBody}
+              emptyMessage="No request body was captured for this error."
+            />
 
             <TraceSection
               title="Response headers"
