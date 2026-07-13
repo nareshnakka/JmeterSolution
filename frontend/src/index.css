@@ -734,7 +734,13 @@ tfoot .aggregate-total-row:hover td {
 .config-form .form-row { margin-bottom: 1rem; }
 .config-form .form-row label { margin-bottom: 0.375rem; }
 .config-form input[type="text"],
-.config-form input[type="number"] { max-width: 560px; }
+.config-form input[type="number"],
+.config-form textarea { max-width: 560px; }
+.config-last-saved {
+  font-size: 0.8125rem;
+  color: var(--muted);
+  margin: -0.5rem 0 1rem;
+}
 .config-form-section {
   margin-top: 1.25rem;
   padding-top: 1.25rem;

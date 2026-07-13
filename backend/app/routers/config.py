@@ -12,13 +12,18 @@ from app.schemas import (
     ArchiveActionOut,
     ArchiveActionRequest,
     ArchiveRunItem,
+    AggregateSummaryConfigUpdate,
     AutoArchiveOut,
     SystemConfigOut,
     SystemConfigUpdate,
     TestRunDeleteFailure,
 )
 from app.services.archive import archive_test_run, auto_archive_old_runs, restore_test_run
-from app.services.system_config import get_system_config, update_system_config
+from app.services.system_config import (
+    get_system_config,
+    update_aggregate_summary_config,
+    update_system_config,
+)
 from app.routers.test_runs import _enrich_run
 
 router = APIRouter(prefix="/api/config", tags=["config"])
@@ -72,6 +77,21 @@ def save_config(body: SystemConfigUpdate, db: Session = Depends(get_db)):
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
+    return _to_config_out(cfg)
+
+
+@router.patch("/aggregate-summary", response_model=SystemConfigOut)
+def save_aggregate_summary(body: AggregateSummaryConfigUpdate, db: Session = Depends(get_db)):
+    cfg = update_aggregate_summary_config(
+        db,
+        aggregate_total_avg_title=body.aggregate_total_avg_title,
+        aggregate_total_avg_filter=body.aggregate_total_avg_filter,
+        aggregate_total_avg_exclude=body.aggregate_total_avg_exclude,
+        aggregate_load_avg_title=body.aggregate_load_avg_title,
+        aggregate_load_avg_filter=body.aggregate_load_avg_filter,
+        aggregate_submit_avg_title=body.aggregate_submit_avg_title,
+        aggregate_submit_avg_filter=body.aggregate_submit_avg_filter,
+    )
     return _to_config_out(cfg)
 
 

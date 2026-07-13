@@ -7,6 +7,12 @@ import {
 import { useToast } from '../components/Toast'
 import type { ArchiveRunItem, DeleteByDateResult, SystemConfig } from '../types'
 import { localInputToUtcIso, localTimezoneLabel } from '../utils/datetime'
+import {
+  aggregateSummaryBody,
+  configFormFromSystem,
+  DEFAULT_CONFIG_FORM,
+  type ConfigFormState,
+} from '../utils/configForm'
 
 type ArchiveFilter = 'all' | 'active' | 'archived'
 
@@ -26,22 +32,9 @@ export default function ConfigPage() {
     completedGeneration,
   } = useArchiveOperations()
   const [config, setConfig] = useState<SystemConfig | null>(null)
-  const [form, setForm] = useState({
-    jmeter_home: '',
-    data_root: '',
-    archive_retention_months: 3,
-    auto_archive_enabled: true,
-    resource_sample_interval_seconds: 10,
-    live_dashboard_refresh_interval_seconds: 10,
-    aggregate_total_avg_title: 'Total Avg',
-    aggregate_total_avg_filter: '',
-    aggregate_total_avg_exclude: '',
-    aggregate_load_avg_title: 'Load Avg',
-    aggregate_load_avg_filter: '_L_',
-    aggregate_submit_avg_title: 'Submit Avg',
-    aggregate_submit_avg_filter: '_S_',
-  })
+  const [form, setForm] = useState<ConfigFormState>(DEFAULT_CONFIG_FORM)
   const [saving, setSaving] = useState(false)
+  const [savingAggregate, setSavingAggregate] = useState(false)
   const [runs, setRuns] = useState<ArchiveRunItem[]>([])
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [archiveFilter, setArchiveFilter] = useState<ArchiveFilter>('all')
@@ -56,21 +49,7 @@ export default function ConfigPage() {
   const loadConfig = useCallback(async () => {
     const data = await api.getConfig()
     setConfig(data)
-    setForm({
-      jmeter_home: data.jmeter_home,
-      data_root: data.data_root,
-      archive_retention_months: data.archive_retention_months,
-      auto_archive_enabled: data.auto_archive_enabled,
-      resource_sample_interval_seconds: data.resource_sample_interval_seconds,
-      live_dashboard_refresh_interval_seconds: data.live_dashboard_refresh_interval_seconds,
-      aggregate_total_avg_title: data.aggregate_total_avg_title ?? 'Total Avg',
-      aggregate_total_avg_filter: data.aggregate_total_avg_filter ?? '',
-      aggregate_total_avg_exclude: data.aggregate_total_avg_exclude ?? '',
-      aggregate_load_avg_title: data.aggregate_load_avg_title ?? 'Load Avg',
-      aggregate_load_avg_filter: data.aggregate_load_avg_filter ?? '_L_',
-      aggregate_submit_avg_title: data.aggregate_submit_avg_title ?? 'Submit Avg',
-      aggregate_submit_avg_filter: data.aggregate_submit_avg_filter ?? '_S_',
-    })
+    setForm(configFormFromSystem(data))
   }, [])
 
   const loadRuns = useCallback(async () => {
@@ -111,17 +90,35 @@ export default function ConfigPage() {
     [selected, runs]
   )
 
+  function applySavedConfig(updated: SystemConfig, message: string) {
+    setConfig(updated)
+    setForm(configFormFromSystem(updated))
+    toast.success(message)
+  }
+
   async function saveConfig(e: React.FormEvent) {
     e.preventDefault()
     setSaving(true)
     try {
       const updated = await api.saveConfig(form)
-      setConfig(updated)
-      toast.success('Configuration saved')
+      applySavedConfig(updated, 'Configuration saved')
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to save configuration')
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function saveAggregateConfig(e: React.FormEvent) {
+    e.preventDefault()
+    setSavingAggregate(true)
+    try {
+      const updated = await api.saveAggregateSummaryConfig(aggregateSummaryBody(form))
+      applySavedConfig(updated, 'Aggregate report settings saved')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save aggregate settings')
+    } finally {
+      setSavingAggregate(false)
     }
   }
 
@@ -229,6 +226,11 @@ export default function ConfigPage() {
   return (
     <>
       <h1 className="page-title">Configuration</h1>
+      {config?.updated_at ? (
+        <p className="config-last-saved">
+          Last saved: {new Date(config.updated_at).toLocaleString()}
+        </p>
+      ) : null}
 
       <div className="card">
         <h2>Server Settings</h2>
@@ -324,92 +326,100 @@ export default function ConfigPage() {
               </span>
             </div>
           </div>
-          <div className="config-form-section">
-            <h3>Aggregate Report Summary</h3>
-            <p className="config-section-hint">
-              Shown on the Live Dashboard aggregate report before Export CSV. Each value is the
-              average of the Avg (ms) column for matching transaction rows only (APIs/requests are
-              excluded). Label filters match substrings (case-insensitive). Total Avg includes
-              transactions matching its filter (or Load ∪ Submit when empty), minus any excluded
-              labels listed below.
-            </p>
-            <div className="config-form-grid">
-              <div className="form-row">
-                <label htmlFor="aggregate_total_avg_title">Total Avg Title</label>
-                <input
-                  id="aggregate_total_avg_title"
-                  value={form.aggregate_total_avg_title}
-                  onChange={(e) => setForm({ ...form, aggregate_total_avg_title: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="form-row">
-                <label htmlFor="aggregate_total_avg_filter">Total Avg Label Filter</label>
-                <input
-                  id="aggregate_total_avg_filter"
-                  value={form.aggregate_total_avg_filter}
-                  onChange={(e) => setForm({ ...form, aggregate_total_avg_filter: e.target.value })}
-                  placeholder="Empty = Load ∪ Submit filters"
-                />
-                <span className="config-hint">
-                  Include only transaction labels matching this substring. Leave empty to use Load
-                  and Submit filters together.
-                </span>
-              </div>
-              <div className="form-row">
-                <label htmlFor="aggregate_total_avg_exclude">Total Avg Exclude Labels</label>
-                <textarea
-                  id="aggregate_total_avg_exclude"
-                  value={form.aggregate_total_avg_exclude}
-                  onChange={(e) => setForm({ ...form, aggregate_total_avg_exclude: e.target.value })}
-                  placeholder="Home_L_Init, Home_S_Logout"
-                  rows={3}
-                />
-                <span className="config-hint">
-                  Comma- or line-separated label substrings to remove from Total Avg (case-insensitive).
-                </span>
-              </div>
-              <div className="form-row">
-                <label htmlFor="aggregate_load_avg_title">Load Avg Title</label>
-                <input
-                  id="aggregate_load_avg_title"
-                  value={form.aggregate_load_avg_title}
-                  onChange={(e) => setForm({ ...form, aggregate_load_avg_title: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="form-row">
-                <label htmlFor="aggregate_load_avg_filter">Load Avg Label Filter</label>
-                <input
-                  id="aggregate_load_avg_filter"
-                  value={form.aggregate_load_avg_filter}
-                  onChange={(e) => setForm({ ...form, aggregate_load_avg_filter: e.target.value })}
-                  placeholder="_L_"
-                />
-              </div>
-              <div className="form-row">
-                <label htmlFor="aggregate_submit_avg_title">Submit Avg Title</label>
-                <input
-                  id="aggregate_submit_avg_title"
-                  value={form.aggregate_submit_avg_title}
-                  onChange={(e) => setForm({ ...form, aggregate_submit_avg_title: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="form-row">
-                <label htmlFor="aggregate_submit_avg_filter">Submit Avg Label Filter</label>
-                <input
-                  id="aggregate_submit_avg_filter"
-                  value={form.aggregate_submit_avg_filter}
-                  onChange={(e) => setForm({ ...form, aggregate_submit_avg_filter: e.target.value })}
-                  placeholder="_S_"
-                />
-              </div>
+          <div className="toolbar" style={{ marginTop: '0.75rem' }}>
+            <button type="submit" className="btn" disabled={saving}>
+              {saving ? 'Saving…' : 'Save Server Settings'}
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <div className="card">
+        <form className="config-form" onSubmit={saveAggregateConfig}>
+          <h2>Aggregate Report Summary</h2>
+          <p className="config-section-hint">
+            Shown on the Live Dashboard aggregate report before Export CSV. Each value is the
+            average of the Avg (ms) column for matching transaction rows only (APIs/requests are
+            excluded). Label filters match substrings (case-insensitive). Total Avg includes
+            transactions matching its filter (or Load ∪ Submit when empty), minus any excluded
+            labels listed below. Use Save Aggregate Settings — no app update or server restart needed.
+          </p>
+          <div className="config-form-grid">
+            <div className="form-row">
+              <label htmlFor="aggregate_total_avg_title">Total Avg Title</label>
+              <input
+                id="aggregate_total_avg_title"
+                value={form.aggregate_total_avg_title}
+                onChange={(e) => setForm({ ...form, aggregate_total_avg_title: e.target.value })}
+                required
+              />
+            </div>
+            <div className="form-row">
+              <label htmlFor="aggregate_total_avg_filter">Total Avg Label Filter</label>
+              <input
+                id="aggregate_total_avg_filter"
+                value={form.aggregate_total_avg_filter}
+                onChange={(e) => setForm({ ...form, aggregate_total_avg_filter: e.target.value })}
+                placeholder="Empty = Load ∪ Submit filters"
+              />
+              <span className="config-hint">
+                Include only transaction labels matching this substring. Leave empty to use Load
+                and Submit filters together.
+              </span>
+            </div>
+            <div className="form-row">
+              <label htmlFor="aggregate_total_avg_exclude">Total Avg Exclude Labels</label>
+              <textarea
+                id="aggregate_total_avg_exclude"
+                value={form.aggregate_total_avg_exclude}
+                onChange={(e) => setForm({ ...form, aggregate_total_avg_exclude: e.target.value })}
+                placeholder="Home_L_Init, Home_S_Logout"
+                rows={3}
+              />
+              <span className="config-hint">
+                Comma- or line-separated label substrings to remove from Total Avg (case-insensitive).
+              </span>
+            </div>
+            <div className="form-row">
+              <label htmlFor="aggregate_load_avg_title">Load Avg Title</label>
+              <input
+                id="aggregate_load_avg_title"
+                value={form.aggregate_load_avg_title}
+                onChange={(e) => setForm({ ...form, aggregate_load_avg_title: e.target.value })}
+                required
+              />
+            </div>
+            <div className="form-row">
+              <label htmlFor="aggregate_load_avg_filter">Load Avg Label Filter</label>
+              <input
+                id="aggregate_load_avg_filter"
+                value={form.aggregate_load_avg_filter}
+                onChange={(e) => setForm({ ...form, aggregate_load_avg_filter: e.target.value })}
+                placeholder="_L_"
+              />
+            </div>
+            <div className="form-row">
+              <label htmlFor="aggregate_submit_avg_title">Submit Avg Title</label>
+              <input
+                id="aggregate_submit_avg_title"
+                value={form.aggregate_submit_avg_title}
+                onChange={(e) => setForm({ ...form, aggregate_submit_avg_title: e.target.value })}
+                required
+              />
+            </div>
+            <div className="form-row">
+              <label htmlFor="aggregate_submit_avg_filter">Submit Avg Label Filter</label>
+              <input
+                id="aggregate_submit_avg_filter"
+                value={form.aggregate_submit_avg_filter}
+                onChange={(e) => setForm({ ...form, aggregate_submit_avg_filter: e.target.value })}
+                placeholder="_S_"
+              />
             </div>
           </div>
           <div className="toolbar" style={{ marginTop: '0.75rem' }}>
-            <button type="submit" className="btn" disabled={saving}>
-              {saving ? 'Saving…' : 'Save Configuration'}
+            <button type="submit" className="btn" disabled={savingAggregate}>
+              {savingAggregate ? 'Saving…' : 'Save Aggregate Settings'}
             </button>
           </div>
         </form>

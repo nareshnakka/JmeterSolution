@@ -236,6 +236,20 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }),
+  saveAggregateSummaryConfig: (body: {
+    aggregate_total_avg_title: string
+    aggregate_total_avg_filter: string
+    aggregate_total_avg_exclude: string
+    aggregate_load_avg_title: string
+    aggregate_load_avg_filter: string
+    aggregate_submit_avg_title: string
+    aggregate_submit_avg_filter: string
+  }) =>
+    request<import('./types').SystemConfig>('/config/aggregate-summary', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
   listArchiveRuns: (archivedOnly = false, includeArchived = true) => {
     const params = new URLSearchParams()
     if (archivedOnly) params.set('archived_only', 'true')

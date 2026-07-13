@@ -92,7 +92,7 @@ export default function LiveDashboard() {
   const errorSearchRef = useRef('')
   const skipSearchRefreshRef = useRef(true)
 
-  useEffect(() => {
+  const loadDashboardConfig = useCallback(() => {
     api.getConfig()
       .then((cfg) => {
         setRefreshIntervalSeconds(
@@ -117,6 +117,10 @@ export default function LiveDashboard() {
       })
       .catch(console.error)
   }, [])
+
+  useEffect(() => {
+    loadDashboardConfig()
+  }, [loadDashboardConfig])
 
   useEffect(() => {
     api.getTestRun(id).then(setRun).catch(console.error)
@@ -316,6 +320,7 @@ export default function LiveDashboard() {
 
     async function tick(showErrorsLoading: boolean) {
       if (cancelled) return
+      loadDashboardConfig()
       const skipMetrics =
         wsConnectedRef.current &&
         (liveStatus === 'running' || liveStatus === 'pending')
@@ -328,7 +333,7 @@ export default function LiveDashboard() {
       cancelled = true
       clearInterval(interval)
     }
-  }, [pollIntervalMs, refreshDashboard, liveStatus, isTerminalStatus])
+  }, [pollIntervalMs, refreshDashboard, liveStatus, isTerminalStatus, loadDashboardConfig])
 
   useEffect(() => {
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'

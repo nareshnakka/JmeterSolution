@@ -98,14 +98,20 @@ def update_system_config(
     aggregate_submit_avg_title: str,
     aggregate_submit_avg_filter: str,
 ) -> SystemConfig:
+    cfg = get_system_config(db)
     jmeter_path = Path(jmeter_home)
     data_path = Path(data_root)
-    if not jmeter_path.is_dir():
-        raise ValueError(f"JMeter home not found: {jmeter_home}")
-    if not (jmeter_path / "bin" / "jmeter.bat").is_file():
-        raise ValueError(f"jmeter.bat not found under {jmeter_home}\\bin")
+    jmeter_changed = str(jmeter_path) != cfg.jmeter_home
+    data_root_changed = str(data_path) != cfg.data_root
 
-    data_path.mkdir(parents=True, exist_ok=True)
+    if jmeter_changed:
+        if not jmeter_path.is_dir():
+            raise ValueError(f"JMeter home not found: {jmeter_home}")
+        if not (jmeter_path / "bin" / "jmeter.bat").is_file():
+            raise ValueError(f"jmeter.bat not found under {jmeter_home}\\bin")
+
+    if data_root_changed:
+        data_path.mkdir(parents=True, exist_ok=True)
 
     cfg = get_system_config(db)
     cfg.jmeter_home = str(jmeter_path)
@@ -135,6 +141,39 @@ def update_system_config(
     db.commit()
     db.refresh(cfg)
     apply_runtime_paths(cfg.jmeter_home, cfg.data_root)
+    return cfg
+
+
+def update_aggregate_summary_config(
+    db: Session,
+    *,
+    aggregate_total_avg_title: str,
+    aggregate_total_avg_filter: str,
+    aggregate_total_avg_exclude: str,
+    aggregate_load_avg_title: str,
+    aggregate_load_avg_filter: str,
+    aggregate_submit_avg_title: str,
+    aggregate_submit_avg_filter: str,
+) -> SystemConfig:
+    cfg = get_system_config(db)
+    cfg.aggregate_total_avg_title = normalize_aggregate_title(
+        aggregate_total_avg_title,
+        fallback=DEFAULT_AGGREGATE_TOTAL_AVG_TITLE,
+    )
+    cfg.aggregate_total_avg_filter = normalize_aggregate_filter(aggregate_total_avg_filter)
+    cfg.aggregate_total_avg_exclude = normalize_aggregate_exclude_list(aggregate_total_avg_exclude)
+    cfg.aggregate_load_avg_title = normalize_aggregate_title(
+        aggregate_load_avg_title,
+        fallback=DEFAULT_AGGREGATE_LOAD_AVG_TITLE,
+    )
+    cfg.aggregate_load_avg_filter = normalize_aggregate_filter(aggregate_load_avg_filter)
+    cfg.aggregate_submit_avg_title = normalize_aggregate_title(
+        aggregate_submit_avg_title,
+        fallback=DEFAULT_AGGREGATE_SUBMIT_AVG_TITLE,
+    )
+    cfg.aggregate_submit_avg_filter = normalize_aggregate_filter(aggregate_submit_avg_filter)
+    db.commit()
+    db.refresh(cfg)
     return cfg
 
 
