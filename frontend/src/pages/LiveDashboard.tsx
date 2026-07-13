@@ -142,15 +142,19 @@ export default function LiveDashboard() {
       lastActiveThreadsRef.current = m.active_threads
     }
     setMetrics((prev) => {
-      if (
-        prev &&
+      if (!prev) return m
+      const totalsUnchanged =
         prev.status === m.status &&
         prev.active_threads === m.active_threads &&
         prev.total_samples === m.total_samples &&
         prev.total_errors === m.total_errors &&
         Math.abs(prev.elapsed_seconds - m.elapsed_seconds) < 0.5 &&
         prev.transactions.length === m.transactions.length
-      ) {
+      const seriesUnchanged =
+        prev.active_users_series.length === m.active_users_series.length &&
+        prev.throughput_series.length === m.throughput_series.length &&
+        (prev.response_codes?.length ?? 0) === (m.response_codes?.length ?? 0)
+      if (totalsUnchanged && seriesUnchanged && prev.transactions === m.transactions) {
         return prev
       }
       return m
@@ -310,7 +314,9 @@ export default function LiveDashboard() {
 
     async function tick(showErrorsLoading: boolean) {
       if (cancelled) return
-      const skipMetrics = wsConnectedRef.current && !isTerminalStatus(liveStatus)
+      const skipMetrics =
+        wsConnectedRef.current &&
+        (liveStatus === 'running' || liveStatus === 'pending')
       await refreshDashboard({ showErrorsLoading, skipMetrics })
     }
 

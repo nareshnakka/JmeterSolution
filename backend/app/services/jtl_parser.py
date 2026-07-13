@@ -99,6 +99,9 @@ def _resolve_request_body(sample: Sample) -> str | None:
             continue
         return text
     return None
+
+
+def _sample_kind(sample: Sample) -> str:
     """Classify JMeter samples: transaction controllers vs HTTP/API requests."""
     msg = (sample.response_message or "").lower()
     data_type = (sample.data_type or "").strip().lower()
