@@ -44,29 +44,44 @@ function filterTransactionsByLabel(
   return transactions.filter((t) => t.label.toLowerCase().includes(q))
 }
 
+function filterTransactionsByAnyLabel(
+  transactions: TransactionMetric[],
+  labelFilters: string[]
+): TransactionMetric[] {
+  const queries = labelFilters.map((f) => f.trim().toLowerCase()).filter(Boolean)
+  if (queries.length === 0) return []
+  return transactions.filter((t) => {
+    const label = t.label.toLowerCase()
+    return queries.some((q) => label.includes(q))
+  })
+}
+
 export function computeAggregateSummaryAvgs(
   transactions: TransactionMetric[] | undefined,
   config: AggregateSummaryConfig
 ): AggregateSummaryAvg[] {
   const transactionRows = filterTransactionsByKind(transactions ?? [], 'transaction')
 
+  const loadFilter = config.aggregate_load_avg_filter
+  const submitFilter = config.aggregate_submit_avg_filter
+
   const buckets = [
     {
       title: config.aggregate_total_avg_title.trim() || DEFAULT_AGGREGATE_SUMMARY_CONFIG.aggregate_total_avg_title,
-      filter: config.aggregate_total_avg_filter,
+      rows: filterTransactionsByAnyLabel(transactionRows, [loadFilter, submitFilter]),
     },
     {
       title: config.aggregate_load_avg_title.trim() || DEFAULT_AGGREGATE_SUMMARY_CONFIG.aggregate_load_avg_title,
-      filter: config.aggregate_load_avg_filter,
+      rows: filterTransactionsByLabel(transactionRows, loadFilter),
     },
     {
       title: config.aggregate_submit_avg_title.trim() || DEFAULT_AGGREGATE_SUMMARY_CONFIG.aggregate_submit_avg_title,
-      filter: config.aggregate_submit_avg_filter,
+      rows: filterTransactionsByLabel(transactionRows, submitFilter),
     },
   ]
 
-  return buckets.map(({ title, filter }) => ({
+  return buckets.map(({ title, rows }) => ({
     title,
-    avg_ms: computeMeanRowAvgMs(filterTransactionsByLabel(transactionRows, filter)),
+    avg_ms: computeMeanRowAvgMs(rows),
   }))
 }

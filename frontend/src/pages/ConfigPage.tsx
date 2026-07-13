@@ -327,8 +327,8 @@ export default function ConfigPage() {
             <p className="config-section-hint">
               Shown on the Live Dashboard aggregate report before Export CSV. Each value is the
               average of the Avg (ms) column for matching transaction rows only (APIs/requests are
-              excluded). Label filters match substrings (case-insensitive). Leave a filter empty to
-              include all transactions.
+              excluded). Label filters match substrings (case-insensitive). Total Avg uses the union
+              of Load and Submit filters (_L_ and _S_ by default).
             </p>
             <div className="config-form-grid">
               <div className="form-row">
@@ -339,15 +339,9 @@ export default function ConfigPage() {
                   onChange={(e) => setForm({ ...form, aggregate_total_avg_title: e.target.value })}
                   required
                 />
-              </div>
-              <div className="form-row">
-                <label htmlFor="aggregate_total_avg_filter">Total Avg Label Filter</label>
-                <input
-                  id="aggregate_total_avg_filter"
-                  value={form.aggregate_total_avg_filter}
-                  onChange={(e) => setForm({ ...form, aggregate_total_avg_filter: e.target.value })}
-                  placeholder="Empty = all transactions"
-                />
+                <span className="config-hint">
+                  Average of transactions matching the Load or Submit label filters below.
+                </span>
               </div>
               <div className="form-row">
                 <label htmlFor="aggregate_load_avg_title">Load Avg Title</label>

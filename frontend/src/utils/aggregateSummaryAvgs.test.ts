@@ -44,10 +44,11 @@ describe('computeMeanRowAvgMs', () => {
 })
 
 describe('computeAggregateSummaryAvgs', () => {
-  it('computes total, load, and submit averages from transaction rows only', () => {
+  it('computes total as avg of load and submit transactions only', () => {
     const rows = [
       tx('Home_L_Page', 100, 10),
       tx('Home_S_Form', 200, 10),
+      tx('Other_Transaction', 999, 10),
       tx('GET /health', 50, 5, 'request'),
     ]
     const result = computeAggregateSummaryAvgs(rows, DEFAULT_AGGREGATE_SUMMARY_CONFIG)
@@ -57,8 +58,12 @@ describe('computeAggregateSummaryAvgs', () => {
     expect(result[2]).toEqual({ title: 'Submit Avg', avg_ms: 200 })
   })
 
-  it('respects custom filters and titles from config', () => {
-    const rows = [tx('LOAD_step', 120, 2), tx('SUBMIT_step', 180, 2)]
+  it('respects custom load and submit filters for total, load, and submit', () => {
+    const rows = [
+      tx('LOAD_step', 120, 2),
+      tx('SUBMIT_step', 180, 2),
+      tx('OTHER_step', 900, 2),
+    ]
     const result = computeAggregateSummaryAvgs(rows, {
       ...DEFAULT_AGGREGATE_SUMMARY_CONFIG,
       aggregate_total_avg_title: 'All Tx',
