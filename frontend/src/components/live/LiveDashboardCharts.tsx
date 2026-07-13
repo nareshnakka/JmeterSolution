@@ -49,7 +49,7 @@ export const ActiveUsersChart = memo(function ActiveUsersChart({
       <p className="dashboard-section-hint">Virtual users over time (1s intervals)</p>
       <div className="chart-wrap">
         {chartData.length > 0 ? (
-          <ResponsiveContainer>
+          <ResponsiveContainer width="100%" height={280}>
             <LineChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
               <XAxis
@@ -126,7 +126,7 @@ export const ThroughputChart = memo(function ThroughputChart({
       </p>
       <div className="chart-wrap">
         {chartData.length > 0 ? (
-          <ResponsiveContainer>
+          <ResponsiveContainer width="100%" height={280}>
             <LineChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
               <XAxis
@@ -231,7 +231,7 @@ export const ResponseTimeChart = memo(function ResponseTimeChart({
       </div>
       <div className="chart-wrap">
         {series.length > 0 ? (
-          <ResponsiveContainer>
+          <ResponsiveContainer width="100%" height={280}>
             <LineChart>
               <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
               <XAxis
@@ -327,7 +327,7 @@ export const ErrorsOverTimeChart = memo(function ErrorsOverTimeChart({
       </div>
       <div className="chart-wrap">
         {hasPoints ? (
-          <ResponsiveContainer>
+          <ResponsiveContainer width="100%" height={280}>
             <LineChart>
               <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
               <XAxis

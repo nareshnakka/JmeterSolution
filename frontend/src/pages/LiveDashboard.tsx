@@ -455,6 +455,14 @@ export default function LiveDashboard() {
   const usersChartData = metrics?.active_users_series ?? []
   const throughputChartData = metrics?.throughput_series ?? []
 
+  useEffect(() => {
+    if (!metrics) return
+    const id = window.requestAnimationFrame(() => {
+      window.dispatchEvent(new Event('resize'))
+    })
+    return () => window.cancelAnimationFrame(id)
+  }, [metrics, graphData, errorsGraphData, usersChartData, throughputChartData])
+
   const elapsedDisplay = useMemo(() => {
     if (!metrics) return '—'
     const scale = timelineScaleForSeconds(metrics.elapsed_seconds)

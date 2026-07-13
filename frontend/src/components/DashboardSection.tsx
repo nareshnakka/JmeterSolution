@@ -10,6 +10,10 @@ interface DashboardSectionProps {
   children: ReactNode
 }
 
+function notifyChartsResize() {
+  window.dispatchEvent(new Event('resize'))
+}
+
 export default function DashboardSection({
   title,
   meta,
@@ -25,6 +29,24 @@ export default function DashboardSection({
     onExpandedChange?.(expanded)
   }, [expanded, onExpandedChange])
 
+  useEffect(() => {
+    if (!expanded) return
+    const id = window.requestAnimationFrame(() => {
+      notifyChartsResize()
+    })
+    return () => window.cancelAnimationFrame(id)
+  }, [expanded])
+
+  function toggleExpanded() {
+    setExpanded((value) => {
+      const next = !value
+      if (next) {
+        window.requestAnimationFrame(() => notifyChartsResize())
+      }
+      return next
+    })
+  }
+
   return (
     <div
       className={`card dashboard-section ${
@@ -34,7 +56,7 @@ export default function DashboardSection({
       <button
         type="button"
         className="dashboard-section-header"
-        onClick={() => setExpanded((value) => !value)}
+        onClick={toggleExpanded}
         aria-expanded={expanded}
       >
         <span className="dashboard-section-title">
@@ -42,9 +64,14 @@ export default function DashboardSection({
         </span>
         {meta ? <span className="dashboard-section-meta">{meta}</span> : null}
       </button>
-      {expanded ? (
-        <div className={`dashboard-section-body ${bodyClassName}`.trim()}>{children}</div>
-      ) : null}
+      <div
+        className={`dashboard-section-body ${bodyClassName} ${
+          expanded ? '' : 'dashboard-section-body-hidden'
+        }`.trim()}
+        aria-hidden={!expanded}
+      >
+        {children}
+      </div>
     </div>
   )
 }

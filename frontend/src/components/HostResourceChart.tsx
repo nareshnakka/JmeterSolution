@@ -106,7 +106,7 @@ function HostResourceChart({
 
       <div className="chart-wrap">
         {chartData.length > 0 ? (
-          <ResponsiveContainer>
+          <ResponsiveContainer width="100%" height={280}>
             <LineChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
               <XAxis

@@ -660,7 +660,7 @@ tfoot .aggregate-total-row:hover td {
 .filters { display: flex; gap: 0.75rem; margin-bottom: 0.75rem; align-items: center; }
 .filters input { max-width: 240px; }
 
-.chart-wrap { height: 280px; width: 100%; }
+.chart-wrap { height: 280px; width: 100%; min-height: 280px; }
 
 .empty { color: var(--muted); padding: 2rem; text-align: center; }
 
@@ -940,6 +940,10 @@ tfoot .aggregate-total-row:hover td {
 /* Collapsible dashboard sections */
 .dashboard-section {
   padding: 0;
+  overflow: visible;
+}
+
+.dashboard-section-collapsed {
   overflow: hidden;
 }
 
@@ -979,6 +983,14 @@ tfoot .aggregate-total-row:hover td {
 .dashboard-section-body {
   padding: 0.875rem 1.25rem 1.25rem;
   border-top: 1px solid var(--border);
+}
+
+.dashboard-section-body-hidden {
+  display: none;
+}
+
+.grid-2 > .dashboard-section {
+  min-width: 0;
 }
 
 .dashboard-section-hint {
