@@ -3,6 +3,7 @@ import {
   LineChart, Line, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   PieChart, Pie, Cell,
 } from 'recharts'
+import DashboardSection from '../DashboardSection'
 import { downsamplePoints, downsampleSeries } from '../../utils/chartDownsample'
 import { maxTimeFromPoints, timelineScaleForSeconds } from '../../utils/timeline'
 import { chartTheme } from '../../utils/chartTheme'
@@ -41,11 +42,11 @@ export const ActiveUsersChart = memo(function ActiveUsersChart({
     : (elapsedSeconds && elapsedSeconds > 0 ? elapsedSeconds : 'dataMax')
 
   return (
-    <div className="card">
-      <h2>Active Users</h2>
-      <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '-0.25rem' }}>
-        Virtual users over time (1s intervals) · refreshes every {refreshIntervalSeconds}s
-      </p>
+    <DashboardSection
+      title="Active Users"
+      meta={`refreshes every ${refreshIntervalSeconds}s`}
+    >
+      <p className="dashboard-section-hint">Virtual users over time (1s intervals)</p>
       <div className="chart-wrap">
         {chartData.length > 0 ? (
           <ResponsiveContainer>
@@ -92,7 +93,7 @@ export const ActiveUsersChart = memo(function ActiveUsersChart({
           <p className="empty">Waiting for data…</p>
         )}
       </div>
-    </div>
+    </DashboardSection>
   )
 })
 
@@ -116,9 +117,11 @@ export const ThroughputChart = memo(function ThroughputChart({
     : (elapsedSeconds && elapsedSeconds > 0 ? elapsedSeconds : 'dataMax')
 
   return (
-    <div className="card">
-      <h2>Throughput (Hits/s)</h2>
-      <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '-0.25rem' }}>
+    <DashboardSection
+      title="Throughput (Hits/s)"
+      meta={`refreshes every ${refreshIntervalSeconds}s`}
+    >
+      <p className="dashboard-section-hint">
         Successful hits per second · refreshes every {refreshIntervalSeconds}s
       </p>
       <div className="chart-wrap">
@@ -167,7 +170,7 @@ export const ThroughputChart = memo(function ThroughputChart({
           <p className="empty">Waiting for data…</p>
         )}
       </div>
-    </div>
+    </DashboardSection>
   )
 })
 
@@ -198,9 +201,15 @@ export const ResponseTimeChart = memo(function ResponseTimeChart({
   const xMax = maxTimeFromPoints(chartPoints) || 'dataMax'
 
   return (
-    <div className="card">
-      <h2>Transaction Response Time</h2>
-      <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '-0.25rem' }}>
+    <DashboardSection
+      title="Transaction Response Time"
+      meta={
+        graphMode === 'cumulative'
+          ? `cumulative · every ${refreshIntervalSeconds}s`
+          : `${selectedLabels.size} selected`
+      }
+    >
+      <p className="dashboard-section-hint">
         {graphMode === 'cumulative'
           ? `Cumulative response time · refreshes every ${refreshIntervalSeconds}s`
           : `Refreshes every ${refreshIntervalSeconds}s when transactions are selected`}
@@ -266,7 +275,7 @@ export const ResponseTimeChart = memo(function ResponseTimeChart({
           Showing individual timeline for: {Array.from(selectedLabels).join(', ')}
         </p>
       )}
-    </div>
+    </DashboardSection>
   )
 })
 
@@ -296,9 +305,11 @@ export const ErrorsOverTimeChart = memo(function ErrorsOverTimeChart({
   const xMax = maxTimeFromPoints(chartPoints) || 'dataMax'
 
   return (
-    <div className="card">
-      <h2>Errors Over Time</h2>
-      <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '-0.25rem' }}>
+    <DashboardSection
+      title="Errors Over Time"
+      meta={`${totalErrors} total · every ${refreshIntervalSeconds}s`}
+    >
+      <p className="dashboard-section-hint">
         Error count per 5s interval · auto-loads on open · refreshes every {refreshIntervalSeconds}s
       </p>
       <div className="toolbar">
@@ -358,7 +369,7 @@ export const ErrorsOverTimeChart = memo(function ErrorsOverTimeChart({
           Showing errors per interval for: {Array.from(selectedLabels).join(', ')}
         </p>
       )}
-    </div>
+    </DashboardSection>
   )
 })
 
@@ -446,11 +457,12 @@ interface ResponseCodesTableProps {
 
 export const ResponseCodesTable = memo(function ResponseCodesTable({ rows }: ResponseCodesTableProps) {
   return (
-    <div className="card response-codes-card">
-      <h2>Response Codes</h2>
-      <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '-0.25rem' }}>
-        HTTP response code distribution for all samples
-      </p>
+    <DashboardSection
+      className="response-codes-card"
+      title="Response Codes"
+      meta={rows.length > 0 ? `${rows.length} code(s)` : undefined}
+    >
+      <p className="dashboard-section-hint">HTTP response code distribution for all samples</p>
       <div className="table-wrap response-codes-table-wrap">
         <table className="data-table response-codes-table">
           <thead>
@@ -475,6 +487,6 @@ export const ResponseCodesTable = memo(function ResponseCodesTable({ rows }: Res
           </tbody>
         </table>
       </div>
-    </div>
+    </DashboardSection>
   )
 })

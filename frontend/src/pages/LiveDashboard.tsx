@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../api'
 import ErrorDetailModal from '../components/ErrorDetailModal'
+import DashboardSection from '../components/DashboardSection'
 import JmeterLogConsole from '../components/JmeterLogConsole'
 import HostResourceChart from '../components/HostResourceChart'
 import {
@@ -556,7 +557,16 @@ export default function LiveDashboard() {
       </div>
 
       {(run || metrics) && (
-        <div className="dashboard-stat-row">
+        <DashboardSection
+          title="Summary"
+          meta={
+            metrics
+              ? `${displayActiveThreads} users · ${metrics.total_samples} samples · ${metrics.total_errors} errors`
+              : undefined
+          }
+          bodyClassName="dashboard-summary-body"
+        >
+          <div className="dashboard-stat-row">
           <div className="stat stat-run-times">
             <div className="label">Run Times</div>
             <div className="stat-run-time-rows">
@@ -585,7 +595,8 @@ export default function LiveDashboard() {
               <p className="empty dashboard-pass-fail-empty">Waiting…</p>
             </div>
           )}
-        </div>
+          </div>
+        </DashboardSection>
       )}
 
       <div className="grid-2">
@@ -624,8 +635,14 @@ export default function LiveDashboard() {
         onGraphSelectedErrors={() => void loadErrorsGraph(false)}
       />
 
-      <div className="card">
-        <h2>Aggregate Report (live)</h2>
+      <DashboardSection
+        title="Aggregate Report (live)"
+        meta={
+          metrics
+            ? `${filteredTransactions.length} row(s) · ${metrics.total_samples} samples`
+            : undefined
+        }
+      >
         <div className="aggregate-report-filters">
           <div className="aggregate-kind-filters" role="radiogroup" aria-label="Sample type">
             <label className="aggregate-kind-option">
@@ -814,11 +831,13 @@ export default function LiveDashboard() {
         {metrics && filteredTransactions.length === 0 && (
           <p className="empty">No rows match the current filters</p>
         )}
-      </div>
+      </DashboardSection>
 
       <div className="grid-2 dashboard-details-grid">
-      <div className="card">
-        <h2>Errors &amp; Exceptions</h2>
+      <DashboardSection
+        title="Errors & Exceptions"
+        meta={`${displayedErrors.length} shown · ${metrics?.total_errors ?? 0} total`}
+      >
         <div className="filters">
           <input
             placeholder="Search errors (label, code, message, URL, thread)…"
@@ -867,7 +886,7 @@ export default function LiveDashboard() {
             {' · '}{metrics?.total_errors ?? 0} total in run
           </p>
         ) : null}
-      </div>
+      </DashboardSection>
 
       <ResponseCodesTable rows={metrics?.response_codes ?? []} />
       </div>
@@ -895,8 +914,7 @@ export default function LiveDashboard() {
       />
 
       {run?.run_dir && (
-        <div className="card">
-          <h2>Artifacts</h2>
+        <DashboardSection title="Artifacts" defaultExpanded={false}>
           <div className="toolbar">
             <a href={api.downloadUrl(id, 'results.jtl')} className="btn btn-secondary">Download JTL</a>
             <a href={api.downloadUrl(id, 'errors-trace.jtl')} className="btn btn-secondary">Download Error Trace JTL</a>
@@ -905,7 +923,7 @@ export default function LiveDashboard() {
           <p style={{ fontSize: '0.8125rem', color: 'var(--muted)' }}>
             Server path: {run.run_dir}
           </p>
-        </div>
+        </DashboardSection>
       )}
     </>
   )

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../api'
+import DashboardSection from './DashboardSection'
 
 const LOG_SYNC_MS = 10_000
 const MAX_LOG_CHARS = 64_000
@@ -94,33 +95,27 @@ export default function JmeterLogConsole({
   const pollSeconds = Math.round((refreshIntervalMs ?? LOG_SYNC_MS) / 1000)
 
   return (
-    <div className={`card log-console ${expanded ? 'log-console-expanded' : 'log-console-collapsed'}`}>
-      <button
-        type="button"
-        className="log-console-header"
-        onClick={() => setExpanded((v) => !v)}
-        aria-expanded={expanded}
-      >
-        <span className="log-console-title">
-          {expanded ? '▼' : '▶'} JMeter Log Console
-        </span>
-        <span className="log-console-meta">
+    <DashboardSection
+      className="log-console"
+      title="JMeter Log Console"
+      defaultExpanded={false}
+      bodyClassName="log-console-body-wrap"
+      onExpandedChange={setExpanded}
+      meta={
+        <>
           {logSize > 0 && `${(logSize / 1024).toFixed(1)} KB`}
           {lastSync && ` · synced ${lastSync.toLocaleTimeString()}`}
           {isRunning && !complete && ' · live'}
-        </span>
-      </button>
-      {expanded && (
-        <div className="log-console-body-wrap">
-          <pre ref={bodyRef} className="log-console-body" onScroll={onScroll} />
-          <div className="log-console-footer">
-            <span>Auto-refresh every {pollSeconds}s</span>
-            <button type="button" className="btn btn-secondary log-console-refresh" onClick={() => void syncLogs()}>
-              Refresh now
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
+        </>
+      }
+    >
+      <pre ref={bodyRef} className="log-console-body" onScroll={onScroll} />
+      <div className="log-console-footer">
+        <span>Auto-refresh every {pollSeconds}s</span>
+        <button type="button" className="btn btn-secondary log-console-refresh" onClick={() => void syncLogs()}>
+          Refresh now
+        </button>
+      </div>
+    </DashboardSection>
   )
 }

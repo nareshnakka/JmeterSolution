@@ -10,6 +10,7 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 import { api } from '../api'
+import DashboardSection from './DashboardSection'
 import type { HostResources } from '../types'
 import { downsamplePoints } from '../utils/chartDownsample'
 import { maxTimeFromPoints, timelineScaleForSeconds } from '../utils/timeline'
@@ -78,9 +79,17 @@ function HostResourceChart({
   const latest = resources?.samples?.[resources.samples.length - 1]
 
   return (
-    <div className="card">
-      <h2>Host System Resources</h2>
-      <p style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '-0.25rem' }}>
+    <DashboardSection
+      title="Host System Resources"
+      meta={
+        latest
+          ? `CPU ${latest.cpu_percent}% · Memory ${latest.memory_percent}%`
+          : isRunning
+            ? 'collecting…'
+            : undefined
+      }
+    >
+      <p className="dashboard-section-hint">
         CPU and memory sampled every {resources?.interval_seconds ?? 10}s on the test server
         {isRunning ? ' · updates live' : ' · recorded during run'}
       </p>
@@ -155,7 +164,7 @@ function HostResourceChart({
           </p>
         )}
       </div>
-    </div>
+    </DashboardSection>
   )
 }
 

@@ -937,13 +937,85 @@ tfoot .aggregate-total-row:hover td {
   border-color: var(--danger);
 }
 
+/* Collapsible dashboard sections */
+.dashboard-section {
+  padding: 0;
+  overflow: hidden;
+}
+
+.dashboard-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+  padding: 0.875rem 1.25rem;
+  border: none;
+  background: var(--surface2);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  font-size: 0.875rem;
+}
+
+.dashboard-section-header:hover {
+  background: var(--brand-light);
+}
+
+.dashboard-section-title {
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 0.875rem;
+  color: var(--text);
+}
+
+.dashboard-section-meta {
+  font-size: 0.75rem;
+  color: var(--muted);
+  text-align: right;
+}
+
+.dashboard-section-body {
+  padding: 0.875rem 1.25rem 1.25rem;
+  border-top: 1px solid var(--border);
+}
+
+.dashboard-section-hint {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin: 0 0 0.75rem;
+}
+
+.dashboard-section-body > .toolbar {
+  margin-bottom: 0.75rem;
+}
+
+.dashboard-section-body > .filters {
+  margin-bottom: 0.75rem;
+}
+
+.dashboard-section-body .aggregate-report-filters {
+  margin-bottom: 0.75rem;
+}
+
+.dashboard-summary-body {
+  padding-top: 0.75rem;
+  padding-bottom: 0.75rem;
+}
+
+.dashboard-summary-body .dashboard-stat-row {
+  margin-bottom: 0;
+}
+
 /* JMeter log console */
 .log-console {
   padding: 0;
   overflow: hidden;
 }
 
-.log-console-header {
+.log-console-header,
+.log-console .dashboard-section-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -957,11 +1029,13 @@ tfoot .aggregate-total-row:hover td {
   font-size: 0.875rem;
 }
 
-.log-console-header:hover {
+.log-console-header:hover,
+.log-console .dashboard-section-header:hover {
   background: var(--brand-light);
 }
 
-.log-console-title {
+.log-console-title,
+.log-console .dashboard-section-title {
   font-weight: 700;
   text-transform: none;
   letter-spacing: normal;
@@ -969,16 +1043,22 @@ tfoot .aggregate-total-row:hover td {
   color: var(--text);
 }
 
-.log-console-meta {
+.log-console-meta,
+.log-console .dashboard-section-meta {
   font-size: 0.75rem;
   color: var(--muted);
+}
+
+.log-console .dashboard-section-body.log-console-body-wrap {
+  padding: 0;
 }
 
 .log-console-body-wrap {
   border-top: 1px solid var(--border);
 }
 
-.log-console-expanded .log-console-body {
+.log-console-expanded .log-console-body,
+.log-console.dashboard-section-expanded .log-console-body {
   height: 320px;
 }
 
