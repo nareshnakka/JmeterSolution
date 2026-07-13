@@ -28,14 +28,11 @@ function round2(value: number): number {
   return Math.round(value * 100) / 100
 }
 
-/** Sample-weighted average response time across transaction rows. */
-export function computeWeightedAvgMs(transactions: TransactionMetric[]): number | null {
+/** Arithmetic mean of each transaction row's Avg (ms) column. */
+export function computeMeanRowAvgMs(transactions: TransactionMetric[]): number | null {
   if (transactions.length === 0) return null
-  const samples = transactions.reduce((sum, t) => sum + t.samples, 0)
-  if (samples === 0) return null
-  const weighted =
-    transactions.reduce((sum, t) => sum + t.avg_ms * t.samples, 0) / samples
-  return round2(weighted)
+  const sum = transactions.reduce((acc, t) => acc + t.avg_ms, 0)
+  return round2(sum / transactions.length)
 }
 
 function filterTransactionsByLabel(
@@ -70,6 +67,6 @@ export function computeAggregateSummaryAvgs(
 
   return buckets.map(({ title, filter }) => ({
     title,
-    avg_ms: computeWeightedAvgMs(filterTransactionsByLabel(transactionRows, filter)),
+    avg_ms: computeMeanRowAvgMs(filterTransactionsByLabel(transactionRows, filter)),
   }))
 }

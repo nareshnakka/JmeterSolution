@@ -1,15 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import {
   computeAggregateSummaryAvgs,
-  computeWeightedAvgMs,
+  computeMeanRowAvgMs,
   DEFAULT_AGGREGATE_SUMMARY_CONFIG,
 } from './aggregateSummaryAvgs'
 import type { TransactionMetric } from '../types'
 
-function tx(label: string, avg_ms: number, samples: number): TransactionMetric {
+function tx(
+  label: string,
+  avg_ms: number,
+  samples: number,
+  kind: 'transaction' | 'request' = 'transaction'
+): TransactionMetric {
   return {
     label,
-    kind: 'transaction',
+    kind,
     samples,
     errors: 0,
     error_pct: 0,
@@ -24,22 +29,26 @@ function tx(label: string, avg_ms: number, samples: number): TransactionMetric {
   }
 }
 
-describe('computeWeightedAvgMs', () => {
-  it('returns sample-weighted average', () => {
-    expect(computeWeightedAvgMs([tx('A', 100, 1), tx('B', 200, 3)])).toBe(175)
+describe('computeMeanRowAvgMs', () => {
+  it('returns the arithmetic mean of row Avg (ms) values', () => {
+    expect(computeMeanRowAvgMs([tx('A', 100, 1), tx('B', 200, 3)])).toBe(150)
+  })
+
+  it('does not weight by sample count', () => {
+    expect(computeMeanRowAvgMs([tx('A', 100, 10), tx('B', 200, 1000)])).toBe(150)
   })
 
   it('returns null when no rows', () => {
-    expect(computeWeightedAvgMs([])).toBeNull()
+    expect(computeMeanRowAvgMs([])).toBeNull()
   })
 })
 
 describe('computeAggregateSummaryAvgs', () => {
-  it('computes total, load, and submit averages from transaction rows', () => {
+  it('computes total, load, and submit averages from transaction rows only', () => {
     const rows = [
       tx('Home_L_Page', 100, 10),
       tx('Home_S_Form', 200, 10),
-      tx('API GET', 50, 5),
+      tx('GET /health', 50, 5, 'request'),
     ]
     const result = computeAggregateSummaryAvgs(rows, DEFAULT_AGGREGATE_SUMMARY_CONFIG)
     expect(result).toHaveLength(3)

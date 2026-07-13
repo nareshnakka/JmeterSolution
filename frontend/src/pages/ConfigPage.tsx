@@ -243,8 +243,9 @@ export default function ConfigPage() {
           <div className="config-form-section">
             <h3>Aggregate Report Summary</h3>
             <p className="config-section-hint">
-              Shown on the Live Dashboard aggregate report before Export CSV. Averages use transaction
-              rows only; label filters match substrings (case-insensitive). Leave a filter empty to
+              Shown on the Live Dashboard aggregate report before Export CSV. Each value is the
+              average of the Avg (ms) column for matching transaction rows only (APIs/requests are
+              excluded). Label filters match substrings (case-insensitive). Leave a filter empty to
               include all transactions.
             </p>
             <div className="config-form-grid">
