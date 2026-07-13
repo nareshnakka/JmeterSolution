@@ -316,3 +316,10 @@ export interface ArchiveActionResult {
   succeeded: number[]
   failed: { id: number; error: string }[]
 }
+
+export interface DeleteByDateResult {
+  match_count: number
+  sample_ids: number[]
+  deleted: number[]
+  failed: { id: number; error: string }[]
+}

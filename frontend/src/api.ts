@@ -137,6 +137,17 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ test_run_ids: ids }),
     }),
+  deleteTestRunsByDate: (body: {
+    finished_from?: string | null
+    finished_to?: string | null
+    include_archived?: boolean
+    dry_run?: boolean
+  }) =>
+    request<import('./types').DeleteByDateResult>('/test-runs/delete-by-date', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
   setConsiderForRelease: (ids: number[], consider: boolean) =>
     request<{ updated: number[]; failed: { id: number; error: string }[] }>(
       '/test-runs/consider-for-release',

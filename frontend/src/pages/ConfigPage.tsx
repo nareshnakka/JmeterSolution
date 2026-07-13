@@ -5,7 +5,8 @@ import {
   useArchiveOperations,
 } from '../context/ArchiveOperationsContext'
 import { useToast } from '../components/Toast'
-import type { ArchiveRunItem, SystemConfig } from '../types'
+import type { ArchiveRunItem, DeleteByDateResult, SystemConfig } from '../types'
+import { localInputToUtcIso, localTimezoneLabel } from '../utils/datetime'
 
 type ArchiveFilter = 'all' | 'active' | 'archived'
 
@@ -44,6 +45,12 @@ export default function ConfigPage() {
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [archiveFilter, setArchiveFilter] = useState<ArchiveFilter>('all')
   const [search, setSearch] = useState('')
+  const [deleteFinishedFrom, setDeleteFinishedFrom] = useState('')
+  const [deleteFinishedTo, setDeleteFinishedTo] = useState('')
+  const [deleteIncludeArchived, setDeleteIncludeArchived] = useState(true)
+  const [deletePreview, setDeletePreview] = useState<DeleteByDateResult | null>(null)
+  const [deletePreviewing, setDeletePreviewing] = useState(false)
+  const [deleteBusy, setDeleteBusy] = useState(false)
 
   const loadConfig = useCallback(async () => {
     const data = await api.getConfig()
@@ -140,6 +147,81 @@ export default function ConfigPage() {
   async function handleAutoArchive() {
     if (!window.confirm('Run auto-archive now for runs older than the retention period?')) return
     await runAutoArchive()
+  }
+
+  function buildDeleteByDateBody(dryRun: boolean) {
+    return {
+      finished_from: deleteFinishedFrom ? localInputToUtcIso(deleteFinishedFrom) : null,
+      finished_to: deleteFinishedTo ? localInputToUtcIso(deleteFinishedTo) : null,
+      include_archived: deleteIncludeArchived,
+      dry_run: dryRun,
+    }
+  }
+
+  async function previewDeleteRange() {
+    if (!deleteFinishedFrom && !deleteFinishedTo) {
+      toast.error('Select at least a Finished From or Finished To date')
+      return
+    }
+    setDeletePreviewing(true)
+    try {
+      const result = await api.deleteTestRunsByDate(buildDeleteByDateBody(true))
+      setDeletePreview(result)
+      if (result.match_count === 0) {
+        toast.success('No test runs match the selected date range')
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to preview delete range')
+    } finally {
+      setDeletePreviewing(false)
+    }
+  }
+
+  async function deleteInRange() {
+    if (!deleteFinishedFrom && !deleteFinishedTo) {
+      toast.error('Select at least a Finished From or Finished To date')
+      return
+    }
+    setDeleteBusy(true)
+    try {
+      const preview =
+        deletePreview ??
+        (await api.deleteTestRunsByDate(buildDeleteByDateBody(true)))
+      setDeletePreview(preview)
+      if (preview.match_count === 0) {
+        toast.success('No test runs match the selected date range')
+        return
+      }
+      const rangeLabel = [
+        deleteFinishedFrom ? `from ${new Date(deleteFinishedFrom).toLocaleString()}` : null,
+        deleteFinishedTo ? `to ${new Date(deleteFinishedTo).toLocaleString()}` : null,
+      ]
+        .filter(Boolean)
+        .join(' ')
+      if (
+        !window.confirm(
+          `Permanently delete ${preview.match_count} test run(s) finished ${rangeLabel}?\n\nThis removes run records and all artifacts (JTL, logs, archives). Running, pending, and scheduled runs are never included.`
+        )
+      ) {
+        return
+      }
+      const result = await api.deleteTestRunsByDate(buildDeleteByDateBody(false))
+      setDeletePreview(result)
+      setSelected(new Set())
+      await loadRuns()
+      if (result.deleted.length > 0) {
+        toast.success(`Deleted ${result.deleted.length} test run(s)`)
+      }
+      if (result.failed.length > 0) {
+        toast.error(
+          `Failed to delete ${result.failed.length} run(s): ${result.failed.map((f) => `#${f.id}`).join(', ')}`
+        )
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete test runs')
+    } finally {
+      setDeleteBusy(false)
+    }
   }
 
   return (
@@ -400,6 +482,86 @@ export default function ConfigPage() {
           </table>
         </div>
         {filteredRuns.length === 0 && <p className="empty">No test runs match the filter</p>}
+      </div>
+
+      <div className="card">
+        <h2>Delete Old Data</h2>
+        <p className="config-section-hint">
+          Permanently delete completed, failed, or stopped test runs whose{' '}
+          <strong>finished</strong> time falls in the selected range. Running, pending, and scheduled
+          runs are excluded. Times use your local timezone ({localTimezoneLabel()}).
+        </p>
+        <div className="config-form-grid delete-range-grid">
+          <div className="form-row">
+            <label htmlFor="delete_finished_from">Finished From</label>
+            <input
+              id="delete_finished_from"
+              type="datetime-local"
+              value={deleteFinishedFrom}
+              onChange={(e) => {
+                setDeleteFinishedFrom(e.target.value)
+                setDeletePreview(null)
+              }}
+            />
+          </div>
+          <div className="form-row">
+            <label htmlFor="delete_finished_to">Finished To</label>
+            <input
+              id="delete_finished_to"
+              type="datetime-local"
+              value={deleteFinishedTo}
+              onChange={(e) => {
+                setDeleteFinishedTo(e.target.value)
+                setDeletePreview(null)
+              }}
+            />
+          </div>
+        </div>
+        <div className="form-row config-checkbox-row">
+          <label>
+            <input
+              type="checkbox"
+              checked={deleteIncludeArchived}
+              onChange={(e) => {
+                setDeleteIncludeArchived(e.target.checked)
+                setDeletePreview(null)
+              }}
+            />
+            Include archived runs
+          </label>
+        </div>
+        <div className="toolbar" style={{ marginTop: '0.75rem' }}>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            disabled={deletePreviewing || deleteBusy}
+            onClick={previewDeleteRange}
+          >
+            {deletePreviewing ? 'Previewing…' : 'Preview'}
+          </button>
+          <button
+            type="button"
+            className="btn btn-danger"
+            disabled={deleteBusy || deletePreviewing}
+            onClick={deleteInRange}
+          >
+            {deleteBusy ? 'Deleting…' : 'Delete in Range'}
+          </button>
+        </div>
+        {deletePreview && (
+          <p className="delete-range-preview">
+            {deletePreview.match_count === 0
+              ? 'No matching test runs.'
+              : `${deletePreview.match_count} test run(s) match the selected range.`}
+            {deletePreview.sample_ids.length > 0 && (
+              <>
+                {' '}
+                Sample IDs: {deletePreview.sample_ids.map((id) => `#${id}`).join(', ')}
+                {deletePreview.match_count > deletePreview.sample_ids.length ? '…' : ''}
+              </>
+            )}
+          </p>
+        )}
       </div>
     </>
   )

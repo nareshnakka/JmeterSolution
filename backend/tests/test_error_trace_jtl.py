@@ -145,3 +145,38 @@ def test_find_matching_trace_sample_falls_back_to_child_with_body():
         match = find_matching_trace_sample(trace_jtl, ref)
         assert match is not None
         assert match.response_data == "Error HTML body"
+
+
+def test_find_matching_trace_sample_java_net_url_and_base64():
+    ref = Sample(
+        sample_index=0,
+        timestamp_ms=3000,
+        elapsed_ms=40,
+        label="API Call",
+        response_code="500",
+        response_message="Error",
+        thread_name="TG 1-1",
+        success=False,
+        failure_message="",
+        url="https://api.example.com/v1/items",
+    )
+    xml = """<?xml version="1.0" encoding="UTF-8"?>
+<testResults version="1.2">
+  <httpSample t="40" ts="3000" s="false"
+       lb="Different Label" rc="500" rm="Error"
+       tn="TG 1-1" dt="text">
+    <java.net.URL>https://api.example.com/v1/items</java.net.URL>
+    <requestHeader class="java.lang.String">Authorization: Bearer token</requestHeader>
+    <responseHeader class="java.lang.String">HTTP/1.1 500</responseHeader>
+    <responseData class="java.lang.String" enc="base64">eyJlcnJvciI6dHJ1ZX0=</responseData>
+  </httpSample>
+</testResults>
+"""
+    with tempfile.TemporaryDirectory() as tmp:
+        trace_jtl = Path(tmp) / "errors-trace.jtl"
+        trace_jtl.write_text(xml, encoding="utf-8")
+        match = find_matching_trace_sample(trace_jtl, ref)
+        assert match is not None
+        assert match.url == "https://api.example.com/v1/items"
+        assert match.request_headers == "Authorization: Bearer token"
+        assert match.response_data == '{"error":true}'

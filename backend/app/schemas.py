@@ -373,6 +373,20 @@ class TestRunDeleteOut(BaseModel):
     failed: list[TestRunDeleteFailure] = Field(default_factory=list)
 
 
+class TestRunDeleteByDateRequest(BaseModel):
+    finished_from: datetime | None = None
+    finished_to: datetime | None = None
+    include_archived: bool = True
+    dry_run: bool = False
+
+
+class TestRunDeleteByDateOut(BaseModel):
+    match_count: int
+    sample_ids: list[int] = Field(default_factory=list)
+    deleted: list[int] = Field(default_factory=list)
+    failed: list[TestRunDeleteFailure] = Field(default_factory=list)
+
+
 class TestRunConsiderRequest(BaseModel):
     test_run_ids: list[int] = Field(..., min_length=1)
     consider: bool = True

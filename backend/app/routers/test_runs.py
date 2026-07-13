@@ -2,7 +2,7 @@
 
 import os
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
@@ -24,6 +24,8 @@ from app.schemas import (
     TestRunConsiderRequest,
     TestRunDeleteFailure,
     TestRunDeleteOut,
+    TestRunDeleteByDateOut,
+    TestRunDeleteByDateRequest,
     TestRunDeleteRequest,
     TestRunLogsOut,
     TestRunOut,
@@ -41,6 +43,7 @@ from app.services.jtl_parser import (
     parse_jtl_file,
     sample_to_error_detail,
     search_errors_from_jtl,
+    _merge_error_detail,
 )
 from app.services.run_artifacts import (
     ensure_run_directory,
@@ -297,6 +300,43 @@ def _delete_test_run_record(run: TestRun, db: Session) -> None:
     db.delete(run)
 
 
+def _to_naive_utc(dt: datetime | None) -> datetime | None:
+    if dt is None:
+        return None
+    if dt.tzinfo is not None:
+        return dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
+
+
+def _query_runs_by_finished_range(
+    db: Session,
+    *,
+    finished_from: datetime | None,
+    finished_to: datetime | None,
+    include_archived: bool,
+) -> list[TestRun]:
+    if finished_from is None and finished_to is None:
+        raise ValueError("At least one of finished_from or finished_to is required")
+
+    start = _to_naive_utc(finished_from)
+    end = _to_naive_utc(finished_to)
+    if start and end and start > end:
+        raise ValueError("finished_from must be before or equal to finished_to")
+
+    q = db.query(TestRun).filter(
+        TestRun.finished_at.isnot(None),
+        TestRun.status.in_(tuple(TERMINAL_RUN_STATUSES)),
+    )
+    if start is not None:
+        q = q.filter(TestRun.finished_at >= start)
+    if end is not None:
+        q = q.filter(TestRun.finished_at <= end)
+    if not include_archived:
+        q = q.filter(TestRun.is_archived.is_(False))
+
+    return q.order_by(TestRun.finished_at.asc(), TestRun.id.asc()).all()
+
+
 @router.post("/delete", response_model=TestRunDeleteOut)
 def delete_test_runs(body: TestRunDeleteRequest, db: Session = Depends(get_db)):
     deleted: list[int] = []
@@ -315,6 +355,41 @@ def delete_test_runs(body: TestRunDeleteRequest, db: Session = Depends(get_db)):
 
     db.commit()
     return TestRunDeleteOut(deleted=deleted, failed=failed)
+
+
+@router.post("/delete-by-date", response_model=TestRunDeleteByDateOut)
+def delete_test_runs_by_date(body: TestRunDeleteByDateRequest, db: Session = Depends(get_db)):
+    try:
+        matches = _query_runs_by_finished_range(
+            db,
+            finished_from=body.finished_from,
+            finished_to=body.finished_to,
+            include_archived=body.include_archived,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    sample_ids = [run.id for run in matches[:20]]
+    if body.dry_run:
+        return TestRunDeleteByDateOut(match_count=len(matches), sample_ids=sample_ids)
+
+    deleted: list[int] = []
+    failed: list[TestRunDeleteFailure] = []
+
+    for run in matches:
+        try:
+            _delete_test_run_record(run, db)
+            deleted.append(run.id)
+        except Exception as exc:
+            failed.append(TestRunDeleteFailure(id=run.id, error=str(exc)))
+
+    db.commit()
+    return TestRunDeleteByDateOut(
+        match_count=len(matches),
+        sample_ids=sample_ids,
+        deleted=deleted,
+        failed=failed,
+    )
 
 
 @router.post("/consider-for-release", response_model=TestRunConsiderOut)
@@ -466,21 +541,28 @@ def get_run_error_detail(run_id: int, sample_index: int, db: Session = Depends(g
 
     main_jtl = resolve_jtl_path(run)
     trace_jtl = resolve_errors_trace_jtl_path(run)
-    detail = get_error_detail_with_trace(main_jtl, trace_jtl, sample_index)
+    agg = _aggregator_for_run(run)
+    main_sample = None
+    if agg and 0 <= sample_index < len(agg.samples):
+        main_sample = agg.samples[sample_index]
+
+    detail = get_error_detail_with_trace(
+        main_jtl,
+        trace_jtl,
+        sample_index,
+        main_sample=main_sample,
+    )
     if detail:
         return detail
 
-    agg = _aggregator_for_run(run)
-    if agg and 0 <= sample_index < len(agg.samples):
-        main_sample = agg.samples[sample_index]
-        if not main_sample.success:
-            if trace_jtl:
-                trace_sample = find_matching_trace_sample(trace_jtl, main_sample)
-                if trace_sample is not None:
-                    out = sample_to_error_detail(trace_sample, from_errors_trace=True)
-                    out.sample_index = sample_index
-                    return out
-            return sample_to_error_detail(main_sample)
+    if main_sample is not None and not main_sample.success:
+        if trace_jtl:
+            trace_sample = find_matching_trace_sample(trace_jtl, main_sample)
+            if trace_sample is not None:
+                out = sample_to_error_detail(trace_sample, from_errors_trace=True)
+                out.sample_index = sample_index
+                return _merge_error_detail(out, sample_to_error_detail(main_sample))
+        return sample_to_error_detail(main_sample)
 
     raise HTTPException(404, "Error sample not found")
 

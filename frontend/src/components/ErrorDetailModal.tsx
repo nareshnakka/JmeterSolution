@@ -18,6 +18,28 @@ function DetailRow({ label, value }: { label: string; value?: string | null }) {
   )
 }
 
+function TraceSection({
+  title,
+  content,
+  emptyMessage,
+}: {
+  title: string
+  content?: string | null
+  emptyMessage: string
+}) {
+  const text = content?.trim() || ''
+  return (
+    <section className="error-detail-trace-section">
+      <h3 className="error-detail-section">{title}</h3>
+      {text ? (
+        <pre className="error-detail-body">{text}</pre>
+      ) : (
+        <p className="error-detail-empty">{emptyMessage}</p>
+      )}
+    </section>
+  )
+}
+
 export default function ErrorDetailModal({ runId, error, onClose }: ErrorDetailModalProps) {
   const [detail, setDetail] = useState<ErrorDetail | null>(null)
   const [loading, setLoading] = useState(true)
@@ -33,6 +55,15 @@ export default function ErrorDetailModal({ runId, error, onClose }: ErrorDetailM
   }, [runId, error.sample_index])
 
   const display = detail ?? error
+  const hasTrace = Boolean(detail?.from_errors_trace)
+
+  const endpoint = useMemo(() => {
+    const url = detail?.url?.trim() || error.url?.trim()
+    return url || null
+  }, [detail?.url, error.url])
+
+  const requestHeaders = detail?.request_headers?.trim() || null
+  const responseHeaders = detail?.response_headers?.trim() || null
 
   const responseBody = useMemo(() => {
     if (detail?.response_body?.trim()) return detail.response_body
@@ -45,8 +76,6 @@ export default function ErrorDetailModal({ runId, error, onClose }: ErrorDetailM
   }, [detail, error.failure_message])
 
   const requestBody = detail?.request_body?.trim() || null
-  const hasHeaders = Boolean(detail?.request_headers?.trim() || detail?.response_headers?.trim())
-  const hasTrace = Boolean(detail?.from_errors_trace)
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -75,7 +104,6 @@ export default function ErrorDetailModal({ runId, error, onClose }: ErrorDetailM
             <div className="error-detail-meta">
               <DetailRow label="Sample #" value={String(error.sample_index)} />
               <DetailRow label="Thread" value={display.thread_name} />
-              <DetailRow label="URL" value={display.url} />
               <DetailRow
                 label="Elapsed"
                 value={display.elapsed_ms != null ? `${display.elapsed_ms} ms` : undefined}
@@ -91,40 +119,41 @@ export default function ErrorDetailModal({ runId, error, onClose }: ErrorDetailM
               <DetailRow label="Failure message" value={display.failure_message} />
             </div>
 
-            {detail?.request_headers && (
-              <>
-                <h3 className="error-detail-section">Request headers</h3>
-                <pre className="error-detail-body">{detail.request_headers}</pre>
-              </>
-            )}
+            <TraceSection
+              title="Endpoint"
+              content={endpoint}
+              emptyMessage="No endpoint URL was captured for this error."
+            />
+
+            <TraceSection
+              title="Request headers"
+              content={requestHeaders}
+              emptyMessage="No request headers were captured for this error."
+            />
 
             {requestBody && (
-              <>
-                <h3 className="error-detail-section">Request body</h3>
-                <pre className="error-detail-body">{requestBody}</pre>
-              </>
+              <TraceSection
+                title="Request body"
+                content={requestBody}
+                emptyMessage="No request body was captured for this error."
+              />
             )}
 
-            {detail?.response_headers && (
-              <>
-                <h3 className="error-detail-section">Response headers</h3>
-                <pre className="error-detail-body">{detail.response_headers}</pre>
-              </>
-            )}
+            <TraceSection
+              title="Response headers"
+              content={responseHeaders}
+              emptyMessage="No response headers were captured for this error."
+            />
 
-            <h3 className="error-detail-section">Response body</h3>
-            {responseBody ? (
-              <pre className="error-detail-body">{responseBody}</pre>
-            ) : (
-              <p className="modal-current-file">
-                No response body was captured for this error.
-                {hasHeaders
-                  ? ' Headers are available above.'
-                  : hasTrace
-                    ? ' The error trace file did not include a response body for this sample.'
-                    : ' Run a new test to capture full error traces (errors-trace.jtl in XML format).'}
-              </p>
-            )}
+            <TraceSection
+              title="Response body"
+              content={responseBody}
+              emptyMessage={
+                hasTrace
+                  ? 'The error trace file did not include a response body for this sample.'
+                  : 'No response body was captured. Run a new test to record full error traces (errors-trace.jtl in XML format).'
+              }
+            />
           </>
         )}
 

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import base64
 import csv
+import html
 import io
 import statistics
 import time
@@ -723,10 +725,63 @@ def _is_jmeter_sample_tag(tag: str) -> bool:
 
 
 def _xml_child_text(elem: ET.Element, name: str) -> str:
-    for child in elem:
-        if _xml_local_tag(child.tag) == name and child.text:
-            return child.text
+    return _xml_field_text(elem, name)
+
+
+def _xml_field_text(elem: ET.Element, *names: str) -> str:
+    """Read JMeter XML child fields (supports CDATA, base64, and java.net.URL)."""
+    for name in names:
+        for child in elem:
+            if _xml_local_tag(child.tag) != name:
+                continue
+            raw = "".join(child.itertext()).strip()
+            if not raw and child.text:
+                raw = child.text.strip()
+            if not raw:
+                continue
+            if (child.get("enc") or "").lower() == "base64":
+                try:
+                    return base64.b64decode(raw).decode("utf-8", errors="replace")
+                except Exception:
+                    return raw
+            return html.unescape(raw)
     return ""
+
+
+def _merge_sample_trace_fields(base: Sample, donor: Sample) -> Sample:
+    """Fill missing trace fields on base from donor (e.g. child httpSample under a transaction)."""
+    return Sample(
+        sample_index=base.sample_index,
+        timestamp_ms=base.timestamp_ms or donor.timestamp_ms,
+        elapsed_ms=base.elapsed_ms or donor.elapsed_ms,
+        label=base.label or donor.label,
+        response_code=base.response_code or donor.response_code,
+        response_message=base.response_message or donor.response_message,
+        thread_name=base.thread_name or donor.thread_name,
+        success=base.success,
+        failure_message=base.failure_message or donor.failure_message,
+        all_threads=base.all_threads,
+        url=base.url or donor.url,
+        data_type=base.data_type or donor.data_type,
+        sample_type=base.sample_type or donor.sample_type,
+        response_data=base.response_data or donor.response_data,
+        response_headers=base.response_headers or donor.response_headers,
+        request_headers=base.request_headers or donor.request_headers,
+        sampler_data=base.sampler_data or donor.sampler_data,
+    )
+
+
+def _enrich_sample_from_descendants(elem: ET.Element, sample: Sample) -> Sample:
+    """Merge trace payload from nested httpSample elements (transaction controllers)."""
+    enriched = sample
+    for child in elem.iter():
+        if child is elem or not _is_jmeter_sample_tag(child.tag):
+            continue
+        sub = _sample_from_xml_element(child, sample.sample_index)
+        if sub is None or sub.success or not _sample_has_trace_payload(sub):
+            continue
+        enriched = _merge_sample_trace_fields(enriched, sub)
+    return enriched
 
 
 def _sample_from_xml_element(elem: ET.Element, sample_index: int) -> Sample | None:
@@ -736,7 +791,7 @@ def _sample_from_xml_element(elem: ET.Element, sample_index: int) -> Sample | No
     except ValueError:
         return None
 
-    return Sample(
+    sample = Sample(
         sample_index=sample_index,
         timestamp_ms=timestamp_ms,
         elapsed_ms=elapsed_ms,
@@ -745,15 +800,16 @@ def _sample_from_xml_element(elem: ET.Element, sample_index: int) -> Sample | No
         response_message=elem.get("rm", "") or "",
         thread_name=elem.get("tn", "") or "",
         success=(elem.get("s", "false") or "false").lower() == "true",
-        failure_message=_xml_child_text(elem, "failureMessage"),
-        url=_xml_child_text(elem, "url"),
+        failure_message=_xml_field_text(elem, "failureMessage"),
+        url=_xml_field_text(elem, "java.net.URL", "url"),
         data_type=elem.get("dt", "") or "",
         sample_type=_xml_local_tag(elem.tag),
-        response_data=_xml_child_text(elem, "responseData"),
-        response_headers=_xml_child_text(elem, "responseHeader"),
-        request_headers=_xml_child_text(elem, "requestHeader"),
-        sampler_data=_xml_child_text(elem, "samplerData"),
+        response_data=_xml_field_text(elem, "responseData"),
+        response_headers=_xml_field_text(elem, "responseHeader", "responseHeaders"),
+        request_headers=_xml_field_text(elem, "requestHeader", "requestHeaders"),
+        sampler_data=_xml_field_text(elem, "samplerData"),
     )
+    return _enrich_sample_from_descendants(elem, sample)
 
 
 def _find_matching_trace_sample_xml(path: Path, ref: Sample) -> Sample | None:
@@ -764,6 +820,9 @@ def _find_matching_trace_sample_xml(path: Path, ref: Sample) -> Sample | None:
 
     exact: Sample | None = None
     loose: Sample | None = None
+    url_match: Sample | None = None
+    ref_url = (ref.url or "").strip().lower()
+
     for idx, elem in enumerate(root.iter()):
         if not _is_jmeter_sample_tag(elem.tag):
             continue
@@ -782,12 +841,16 @@ def _find_matching_trace_sample_xml(path: Path, ref: Sample) -> Sample | None:
                 _sample_has_trace_payload(sample) and not _sample_has_trace_payload(loose)
             ):
                 loose = sample
+        elif ref_url and (sample.url or "").strip().lower() == ref_url:
+            if url_match is None or (
+                _sample_has_trace_payload(sample) and not _sample_has_trace_payload(url_match)
+            ):
+                url_match = sample
 
-    if exact is not None and _sample_has_trace_payload(exact):
-        return exact
-    if loose is not None and _sample_has_trace_payload(loose):
-        return loose
-    return exact or loose
+    for candidate in (exact, loose, url_match):
+        if candidate is not None and _sample_has_trace_payload(candidate):
+            return candidate
+    return exact or loose or url_match
 
 
 def _find_matching_trace_sample_csv(path: Path, ref: Sample) -> Sample | None:
@@ -845,11 +908,14 @@ def get_error_detail_with_trace(
     main_jtl: str | Path | None,
     trace_jtl: str | Path | None,
     sample_index: int,
+    *,
+    main_sample: Sample | None = None,
 ) -> ErrorDetailOut | None:
     """Resolve error detail from errors-trace.jtl when available, else results.jtl."""
-    if main_jtl is None:
-        return None
-    main_sample = get_sample_from_jtl(main_jtl, sample_index)
+    if main_sample is None:
+        if main_jtl is None:
+            return None
+        main_sample = get_sample_from_jtl(main_jtl, sample_index)
     if main_sample is None or main_sample.success:
         return None
 
