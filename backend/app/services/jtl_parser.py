@@ -150,6 +150,7 @@ class MetricsAggregator:
     _last_all_threads: int = 0
     _users_by_timeline_bucket: dict[int, int] = field(default_factory=dict)
     _throughput_by_timeline_bucket: dict[int, int] = field(default_factory=dict)
+    _throughput_success_by_timeline_bucket: dict[int, int] = field(default_factory=dict)
     _header_map: dict[str, int] = field(default_factory=_default_header_map)
     jtl_byte_offset: int = 0
     _revision: int = 0
@@ -211,9 +212,13 @@ class MetricsAggregator:
 
         prev_users = self._users_by_timeline_bucket.get(timeline_bucket, 0)
         self._users_by_timeline_bucket[timeline_bucket] = max(prev_users, sample.all_threads)
+        # Count every sample (pass + fail) so Hits/s always has data when traffic exists.
+        self._throughput_by_timeline_bucket[timeline_bucket] = (
+            self._throughput_by_timeline_bucket.get(timeline_bucket, 0) + 1
+        )
         if sample.success:
-            self._throughput_by_timeline_bucket[timeline_bucket] = (
-                self._throughput_by_timeline_bucket.get(timeline_bucket, 0) + 1
+            self._throughput_success_by_timeline_bucket[timeline_bucket] = (
+                self._throughput_success_by_timeline_bucket.get(timeline_bucket, 0) + 1
             )
 
         series = self.label_time_series[sample.label]
@@ -274,26 +279,31 @@ class MetricsAggregator:
         return self._downsample_timeline_points(result)
 
     def _filled_throughput_series(self) -> list[dict[str, Any]]:
-        """Hits/s timeline — sparse change points (including drops to 0), then capped."""
+        """Hits/s timeline using adaptive buckets so long runs stay chartable (~300 pts)."""
         if not self._throughput_by_timeline_bucket and not self.samples:
             return []
 
         max_bucket = self._timeline_max_bucket()
+        if max_bucket < 0:
+            return [{"t": 0.0, "hits_per_sec": 0.0}]
+
+        # Prefer ~300 points across the whole window (1s for short runs, coarser for long).
+        target_points = 300
+        stride = max(1, (max_bucket + 1 + target_points - 1) // target_points)
         result: list[dict[str, Any]] = []
-        last_rate: float | None = None
-        for bucket in range(0, max_bucket + 1):
-            count = self._throughput_by_timeline_bucket.get(bucket, 0)
-            rate = round(count / self.timeline_bucket_seconds, 2)
-            if last_rate is None or rate != last_rate:
-                result.append({"t": self._timeline_time(bucket), "hits_per_sec": rate})
-                last_rate = rate
-        if not result:
-            result.append({"t": 0.0, "hits_per_sec": 0.0})
-        # Ensure the series ends at the active window so charts cover the full run.
-        end_t = self._timeline_time(max_bucket)
-        if result[-1]["t"] < end_t:
-            result.append({"t": end_t, "hits_per_sec": last_rate or 0.0})
-        return self._downsample_timeline_points(result)
+        for start in range(0, max_bucket + 1, stride):
+            end = min(start + stride, max_bucket + 1)
+            total = 0
+            for bucket in range(start, end):
+                total += self._throughput_by_timeline_bucket.get(bucket, 0)
+            seconds = (end - start) * self.timeline_bucket_seconds
+            result.append(
+                {
+                    "t": self._timeline_time(start),
+                    "hits_per_sec": round(total / seconds, 2) if seconds > 0 else 0.0,
+                }
+            )
+        return result
 
     def _downsample_timeline_points(
         self,
@@ -512,8 +522,8 @@ class MetricsAggregator:
                     break
             ends.append(self._timeline_time(min(end_bucket, self._sample_end_bucket())))
 
-        if self._throughput_by_timeline_bucket:
-            tp_end = self._timeline_time(max(self._throughput_by_timeline_bucket))
+        if self._throughput_success_by_timeline_bucket:
+            tp_end = self._timeline_time(max(self._throughput_success_by_timeline_bucket))
             ends.append(min(tp_end, self._sample_end_seconds()))
 
         if ends:

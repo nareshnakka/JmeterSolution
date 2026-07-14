@@ -110,11 +110,25 @@ export const ThroughputChart = memo(function ThroughputChart({
   capTimelineToData = false,
   refreshIntervalSeconds,
 }: ThroughputChartProps) {
-  const chartData = useMemo(() => downsamplePoints(data), [data])
+  const chartData = useMemo(() => {
+    const points = downsamplePoints(data)
+    return points.map((p) => {
+      const raw = p as ThroughputPoint & { hitsPerSec?: number }
+      return {
+        t: Number(raw.t) || 0,
+        hits_per_sec: Number(raw.hits_per_sec ?? raw.hitsPerSec ?? 0),
+      }
+    })
+  }, [data])
   const timeline = useTimelineScale(chartData, elapsedSeconds, capTimelineToData)
+  const dataMaxT = maxTimeFromPoints(chartData)
   const xMax = capTimelineToData
-    ? maxTimeFromPoints(chartData)
-    : (elapsedSeconds && elapsedSeconds > 0 ? elapsedSeconds : 'dataMax')
+    ? dataMaxT
+    : elapsedSeconds && elapsedSeconds > 0
+      ? Math.max(elapsedSeconds, dataMaxT)
+      : dataMaxT || 'dataMax'
+  const maxHits = chartData.reduce((m, p) => Math.max(m, p.hits_per_sec || 0), 0)
+  const yMax = maxHits > 0 ? maxHits * 1.15 : 1
 
   return (
     <DashboardSection
@@ -122,12 +136,12 @@ export const ThroughputChart = memo(function ThroughputChart({
       meta={`refreshes every ${refreshIntervalSeconds}s`}
     >
       <p className="dashboard-section-hint">
-        Successful hits per second · refreshes every {refreshIntervalSeconds}s
+        Hits per second (all samples) · refreshes every {refreshIntervalSeconds}s
       </p>
       <div className="chart-wrap">
         {chartData.length > 0 ? (
-          <ResponsiveContainer width="100%" height={280}>
-            <ComposedChart data={chartData}>
+          <ResponsiveContainer width="100%" height={280} minWidth={0}>
+            <ComposedChart data={chartData} margin={{ top: 8, right: 12, left: 0, bottom: 8 }}>
               <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
               <XAxis
                 dataKey="t"
@@ -139,6 +153,7 @@ export const ThroughputChart = memo(function ThroughputChart({
               />
               <YAxis
                 stroke={chartTheme.axis}
+                domain={[0, yMax]}
                 allowDecimals
                 label={{ value: 'Hits/s', angle: -90, position: 'insideLeft' }}
               />
@@ -148,21 +163,24 @@ export const ThroughputChart = memo(function ThroughputChart({
                 formatter={(value: number) => [`${value}`, 'Hits/s']}
               />
               <Area
-                type="stepAfter"
+                type="monotone"
                 dataKey="hits_per_sec"
-                stroke="none"
+                stroke={chartTheme.throughput}
+                strokeWidth={2}
                 fill={chartTheme.throughput}
-                fillOpacity={0.18}
+                fillOpacity={0.25}
                 isAnimationActive={false}
+                connectNulls
               />
               <Line
-                type="stepAfter"
+                type="monotone"
                 dataKey="hits_per_sec"
                 stroke={chartTheme.throughput}
                 strokeWidth={2}
                 dot={false}
                 name="Hits/s"
                 isAnimationActive={false}
+                connectNulls
               />
             </ComposedChart>
           </ResponsiveContainer>
