@@ -274,18 +274,14 @@ class MetricsAggregator:
         return result
 
     def _filled_throughput_series(self) -> list[dict[str, Any]]:
-        """Hits per second — only buckets with traffic (sparse)."""
-        if not self._throughput_by_timeline_bucket:
+        """Hits per second across the active test window (zeros filled for empty seconds)."""
+        if not self._throughput_by_timeline_bucket and not self.samples:
             return []
 
         max_bucket = self._timeline_max_bucket()
         result: list[dict[str, Any]] = []
-        for bucket in sorted(self._throughput_by_timeline_bucket):
-            if bucket > max_bucket:
-                continue
-            count = self._throughput_by_timeline_bucket[bucket]
-            if count <= 0:
-                continue
+        for bucket in range(0, max_bucket + 1):
+            count = self._throughput_by_timeline_bucket.get(bucket, 0)
             result.append(
                 {
                     "t": self._timeline_time(bucket),
@@ -617,6 +613,12 @@ class MetricsAggregator:
         return sample_to_error_detail(sample)
 
 
+def _parse_jtl_success(raw: str) -> bool:
+    """Accept common JMeter/CSV success encodings."""
+    value = (raw or "").strip().lower()
+    return value in {"true", "1", "yes", "y", "ok"}
+
+
 def _sample_from_row(row: list[str], header: dict[str, int], sample_index: int) -> Sample | None:
     if len(row) < 8:
         return None
@@ -634,7 +636,7 @@ def _sample_from_row(row: list[str], header: dict[str, int], sample_index: int) 
             response_code=_col(row, header, "responseCode"),
             response_message=_col(row, header, "responseMessage"),
             thread_name=_col(row, header, "threadName"),
-            success=_col(row, header, "success", "false").lower() == "true",
+            success=_parse_jtl_success(_col(row, header, "success", "false")),
             failure_message=_col(row, header, "failureMessage"),
             all_threads=all_threads,
             url=_col(row, header, "URL"),
@@ -831,7 +833,7 @@ def _sample_from_xml_element(elem: ET.Element, sample_index: int) -> Sample | No
         response_code=elem.get("rc", "") or "",
         response_message=elem.get("rm", "") or "",
         thread_name=elem.get("tn", "") or "",
-        success=(elem.get("s", "false") or "false").lower() == "true",
+        success=_parse_jtl_success(elem.get("s", "false") or "false"),
         failure_message=_xml_field_text(elem, "failureMessage"),
         url=_xml_field_text(elem, "java.net.URL", "url"),
         data_type=elem.get("dt", "") or "",

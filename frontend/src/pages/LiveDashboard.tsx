@@ -172,7 +172,16 @@ export default function LiveDashboard() {
         prev.active_users_series.length === m.active_users_series.length &&
         prev.throughput_series.length === m.throughput_series.length &&
         (prev.response_codes?.length ?? 0) === (m.response_codes?.length ?? 0)
-      if (totalsUnchanged && seriesUnchanged && prev.transactions === m.transactions) {
+      const tpPrev = prev.throughput_series[prev.throughput_series.length - 1]
+      const tpNext = m.throughput_series[m.throughput_series.length - 1]
+      const throughputTailUnchanged =
+        tpPrev?.t === tpNext?.t && tpPrev?.hits_per_sec === tpNext?.hits_per_sec
+      if (
+        totalsUnchanged &&
+        seriesUnchanged &&
+        throughputTailUnchanged &&
+        prev.transactions === m.transactions
+      ) {
         return prev
       }
       return m

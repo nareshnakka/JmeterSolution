@@ -40,7 +40,7 @@ def test_active_users_series_uses_one_second_buckets_with_step_hold():
     assert series[-1]["t"] == 2.0
 
 
-def test_throughput_series_counts_successful_hits_per_second():
+def test_throughput_series_counts_successful_hits_per_second_and_fills_zeros():
     agg = MetricsAggregator(test_run_id=1, start_wall_time=0, timeline_bucket_seconds=1)
     agg.status = TestRunStatus.COMPLETED
     for i in range(4):
@@ -48,8 +48,10 @@ def test_throughput_series_counts_successful_hits_per_second():
     _ingest(agg, timestamp_ms=1_200, all_threads=1, success=False)
 
     series = agg._filled_throughput_series()
-    assert len(series) == 1
+    # Sparse traffic at t=0 only, but series is dense through sample end (1s).
+    assert [p["t"] for p in series] == [0.0, 1.0]
     assert series[0]["hits_per_sec"] == 4.0
+    assert series[1]["hits_per_sec"] == 0.0
 
 
 def test_label_graph_capped_to_active_test_window():

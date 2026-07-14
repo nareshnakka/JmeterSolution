@@ -21,18 +21,24 @@ export default function TestRunsPage() {
   const toast = useToast()
   const navigate = useNavigate()
   const [runs, setRuns] = useState<TestRun[]>([])
+  const [loading, setLoading] = useState(true)
   const [columnFilters, setColumnFilters] = useState<TestRunColumnFilters>(EMPTY_RUN_FILTERS)
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [deleting, setDeleting] = useState(false)
   const [updatingRelease, setUpdatingRelease] = useState(false)
 
-  const loadRuns = useCallback(() => {
-    api.listTestRuns().then(setRuns).catch(console.error)
+  const loadRuns = useCallback((options?: { silent?: boolean }) => {
+    if (!options?.silent) setLoading(true)
+    api
+      .listTestRuns()
+      .then(setRuns)
+      .catch(console.error)
+      .finally(() => setLoading(false))
   }, [])
 
   useEffect(() => {
     loadRuns()
-    const t = setInterval(loadRuns, 5000)
+    const t = setInterval(() => loadRuns({ silent: true }), 5000)
     return () => clearInterval(t)
   }, [loadRuns])
 
@@ -117,7 +123,7 @@ export default function TestRunsPage() {
     setUpdatingRelease(true)
     try {
       const result = await api.setConsiderForRelease(ids, consider)
-      loadRuns()
+      loadRuns({ silent: true })
       if (result.updated.length > 0) {
         toast.success(
           consider
@@ -163,7 +169,7 @@ export default function TestRunsPage() {
         result.deleted.forEach((id) => next.delete(id))
         return next
       })
-      loadRuns()
+      loadRuns({ silent: true })
       if (result.deleted.length > 0) {
         toast.success(
           result.deleted.length === 1
@@ -186,6 +192,17 @@ export default function TestRunsPage() {
   return (
     <>
       <h1 className="page-title">Test Runs</h1>
+
+      {loading && runs.length === 0 && (
+        <div className="dashboard-results-loading" role="status" aria-live="polite">
+          <span className="dashboard-results-spinner" aria-hidden="true" />
+          <div className="dashboard-results-loading-text">
+            <strong>Loading test runs…</strong>
+            <span>Fetching the latest run list from the server.</span>
+          </div>
+        </div>
+      )}
+
       <div className="filters">
         <button
           type="button"
@@ -224,7 +241,16 @@ export default function TestRunsPage() {
       </div>
       <div className="card">
         <div className="table-toolbar">
-          <span className="table-toolbar-count">{filtered.length} run(s)</span>
+          <span className="table-toolbar-count">
+            {loading && runs.length === 0 ? (
+              <span className="table-toolbar-loading">
+                <span className="dashboard-results-spinner table-toolbar-spinner" aria-hidden="true" />
+                Loading run(s)…
+              </span>
+            ) : (
+              `${filtered.length} run(s)`
+            )}
+          </span>
         </div>
         <div className="table-scroll">
           <table className="table-with-filters">
@@ -237,6 +263,7 @@ export default function TestRunsPage() {
                     onChange={toggleAllFiltered}
                     title="Select all visible runs"
                     aria-label="Select all visible runs"
+                    disabled={loading && runs.length === 0}
                   />
                 </th>
                 <th>ID</th>
@@ -313,7 +340,14 @@ export default function TestRunsPage() {
             </tbody>
           </table>
         </div>
-        {filtered.length === 0 && <p className="empty">No test runs found</p>}
+        {loading && runs.length === 0 ? (
+          <div className="table-loading-panel" role="status" aria-live="polite">
+            <span className="dashboard-results-spinner" aria-hidden="true" />
+            <span>Loading test runs…</span>
+          </div>
+        ) : (
+          filtered.length === 0 && <p className="empty">No test runs found</p>
+        )}
       </div>
     </>
   )

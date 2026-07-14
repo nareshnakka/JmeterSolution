@@ -1,6 +1,6 @@
 import { memo, useMemo } from 'react'
 import {
-  LineChart, Line, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+  LineChart, Line, Area, ComposedChart, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   PieChart, Pie, Cell,
 } from 'recharts'
 import DashboardSection from '../DashboardSection'
@@ -50,7 +50,7 @@ export const ActiveUsersChart = memo(function ActiveUsersChart({
       <div className="chart-wrap">
         {chartData.length > 0 ? (
           <ResponsiveContainer width="100%" height={280}>
-            <LineChart data={chartData}>
+            <ComposedChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
               <XAxis
                 dataKey="t"
@@ -87,7 +87,7 @@ export const ActiveUsersChart = memo(function ActiveUsersChart({
                 name="Active Users"
                 isAnimationActive={false}
               />
-            </LineChart>
+            </ComposedChart>
           </ResponsiveContainer>
         ) : (
           <p className="empty">Waiting for data…</p>
@@ -127,7 +127,7 @@ export const ThroughputChart = memo(function ThroughputChart({
       <div className="chart-wrap">
         {chartData.length > 0 ? (
           <ResponsiveContainer width="100%" height={280}>
-            <LineChart data={chartData}>
+            <ComposedChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
               <XAxis
                 dataKey="t"
@@ -152,7 +152,7 @@ export const ThroughputChart = memo(function ThroughputChart({
                 dataKey="hits_per_sec"
                 stroke="none"
                 fill={chartTheme.throughput}
-                fillOpacity={0.12}
+                fillOpacity={0.18}
                 isAnimationActive={false}
               />
               <Line
@@ -164,7 +164,7 @@ export const ThroughputChart = memo(function ThroughputChart({
                 name="Hits/s"
                 isAnimationActive={false}
               />
-            </LineChart>
+            </ComposedChart>
           </ResponsiveContainer>
         ) : (
           <p className="empty">Waiting for data…</p>

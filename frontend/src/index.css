@@ -1580,6 +1580,29 @@ tfoot .aggregate-total-row:hover td {
   to { transform: rotate(360deg); }
 }
 
+.table-toolbar-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--muted);
+}
+
+.table-toolbar-spinner {
+  width: 0.95rem;
+  height: 0.95rem;
+  border-width: 2px;
+}
+
+.table-loading-panel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 2.5rem 1rem;
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+
 .dashboard-stat-row {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
