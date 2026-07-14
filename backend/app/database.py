@@ -1,9 +1,21 @@
 """SQLAlchemy database setup."""
 
-from sqlalchemy import create_engine
+from __future__ import annotations
+
+import logging
+
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from app.config import settings
+from app.db_paths import resolve_database_url
+
+logger = logging.getLogger(__name__)
+
+_resolved_url = resolve_database_url(settings.database_url, data_root=settings.data_root)
+if _resolved_url != settings.database_url:
+    logger.info("Resolved database URL to %s", _resolved_url)
+    settings.database_url = _resolved_url
 
 connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
 engine = create_engine(settings.database_url, connect_args=connect_args)
@@ -12,6 +24,17 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 class Base(DeclarativeBase):
     pass
+
+
+if settings.database_url.startswith("sqlite"):
+
+    @event.listens_for(engine, "connect")
+    def _sqlite_on_connect(dbapi_connection, _connection_record) -> None:  # noqa: ANN001
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
 
 
 def get_db():
@@ -23,8 +46,8 @@ def get_db():
 
 
 def _migrate_schema() -> None:
-    """Lightweight SQLite migrations for columns added after first release."""
-    from sqlalchemy import inspect, text
+    """Additive-only SQLite migrations. Never drops tables or rewrites existing rows."""
+    from sqlalchemy import inspect
 
     insp = inspect(engine)
     if "test_runs" in insp.get_table_names():
@@ -44,6 +67,7 @@ def _migrate_schema() -> None:
             with engine.begin() as conn:
                 for stmt in alters:
                     conn.execute(text(stmt))
+                    logger.info("Applied schema migration: %s", stmt)
 
     if "system_config" in insp.get_table_names():
         cfg_cols = {c["name"] for c in insp.get_columns("system_config")}
@@ -63,6 +87,8 @@ def _migrate_schema() -> None:
                         "ADD COLUMN live_dashboard_refresh_interval_seconds INTEGER NOT NULL DEFAULT 10"
                     )
                 )
+        # Re-read columns after prior ALTERs in this process
+        cfg_cols = {c["name"] for c in inspect(engine).get_columns("system_config")}
         aggregate_columns = {
             "aggregate_total_avg_title": "VARCHAR(128) NOT NULL DEFAULT 'Total Avg'",
             "aggregate_total_avg_filter": "VARCHAR(256) NOT NULL DEFAULT ''",
@@ -76,6 +102,7 @@ def _migrate_schema() -> None:
             if col_name not in cfg_cols:
                 with engine.begin() as conn:
                     conn.execute(text(f"ALTER TABLE system_config ADD COLUMN {col_name} {col_def}"))
+                    logger.info("Added system_config.%s", col_name)
 
     if "scenarios" in insp.get_table_names():
         scenario_cols = {c["name"] for c in insp.get_columns("scenarios")}
@@ -85,6 +112,7 @@ def _migrate_schema() -> None:
 
 
 def init_db():
+    """Create missing tables and apply additive migrations. Never wipes existing data."""
     from app import models  # noqa: F401
     from app.services.system_config import seed_system_config
 
