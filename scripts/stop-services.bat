@@ -6,21 +6,22 @@ set "PORT=8080"
 
 call :LoadEnv "%ROOT%\.env"
 
-echo Stopping JMeter Agent services...
+echo Stopping JMeter Agent UI services...
+echo NOTE: Running JMeter load tests are NOT stopped ^(they continue writing results^).
 
 set "STOPPED=0"
 
 call :StopPort %PORT% "Backend"
 call :StopPort 5173 "Frontend dev server"
 
-rem Close helper windows started by start-services.bat
+rem Close helper windows started by start-services.bat ^(API/UI only — never taskkill Java/JMeter^)
 taskkill /FI "WINDOWTITLE eq JMeter Agent Backend*" /F >nul 2>&1
 taskkill /FI "WINDOWTITLE eq JMeter Agent Frontend*" /F >nul 2>&1
 
 if "%STOPPED%"=="0" (
-  echo No running services found on ports %PORT% or 5173.
+  echo No running UI services found on ports %PORT% or 5173.
 ) else (
-  echo Done.
+  echo Done. Any active JMeter test processes were left running.
 )
 
 exit /b 0

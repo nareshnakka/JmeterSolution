@@ -119,6 +119,15 @@ export default function LiveDashboard() {
   }, [])
 
   useEffect(() => {
+    if (!Number.isFinite(id) || id <= 0) return
+    try {
+      sessionStorage.setItem('jmeterAgent.lastLiveRunId', String(id))
+    } catch {
+      /* ignore */
+    }
+  }, [id])
+
+  useEffect(() => {
     loadDashboardConfig()
   }, [loadDashboardConfig])
 

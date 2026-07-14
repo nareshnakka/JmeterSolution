@@ -13,6 +13,7 @@ from app.config import settings
 from app.database import SessionLocal, init_db
 from app.services.system_config import get_system_config
 from app.services.run_queue import reconcile_stale_runs, process_run_queue
+from app.services.jmeter_runner import run_manager
 from app.routers import config, hierarchy, notifications, test_runs, websocket
 from app.services.scheduler import shutdown_scheduler, start_scheduler
 from app.services.update_manager import update_manager
@@ -39,9 +40,28 @@ class SPAStaticFiles(StaticFiles):
 async def lifespan(app: FastAPI):
     init_db()
     db = SessionLocal()
+    resumed_runs: list[int] = []
     try:
         get_system_config(db)
+        # Resume live JMeter processes that survived a server update/restart first,
+        # then mark only truly dead RUNNING rows as failed.
+        resumed_runs = await run_manager.reattach_running_runs()
         reconcile_stale_runs(db)
+        if resumed_runs:
+            from app.services.app_notifications import create_notification
+
+            for run_id in resumed_runs:
+                create_notification(
+                    db,
+                    kind="run_resumed",
+                    title="Test resumed after update",
+                    message=(
+                        f"Live monitoring reconnected for run #{run_id}. "
+                        "Open the Live Dashboard to continue watching — JMeter kept running."
+                    ),
+                    payload={"run_id": run_id},
+                    dedupe_key=f"run_resumed:{run_id}",
+                )
     finally:
         db.close()
     await process_run_queue()
@@ -49,6 +69,10 @@ async def lifespan(app: FastAPI):
     db2 = SessionLocal()
     try:
         update_manager.check_for_updates(db2, notify=True)
+        # Successful boot after update — clear install marker (do not re-run the same update).
+        from app.services.update_manager import clear_pending_update_marker
+
+        clear_pending_update_marker()
     finally:
         db2.close()
     await update_manager.start_background_checks()

@@ -2,6 +2,7 @@ import { NavLink, Route, Routes } from 'react-router-dom'
 import { ArchiveGlobalStatus, ArchiveOperationsProvider } from './context/ArchiveOperationsContext'
 import { NotificationsProvider } from './context/NotificationsContext'
 import { NotificationBell } from './components/NotificationBell'
+import ResumeLiveBanner from './components/ResumeLiveBanner'
 import { ToastProvider } from './components/Toast'
 import HierarchyPage from './pages/HierarchyPage'
 import ScenariosPage from './pages/ScenariosPage'
@@ -49,6 +50,7 @@ export default function App() {
             </nav>
           </aside>
           <main className="main">
+            <ResumeLiveBanner />
             <Routes>
               <Route path="/" element={<HierarchyPage />} />
               <Route path="/scenarios" element={<ScenariosPage />} />

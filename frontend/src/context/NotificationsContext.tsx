@@ -125,8 +125,8 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     async (version: string) => {
       const message =
         `Install ${version} from GitHub?\n\n` +
-        'The server will restart and any local code changes will be discarded. ' +
-        'If a test is running, the update will be postponed until the server is idle.'
+        'The UI server will restart briefly. Any running JMeter test continues generating results, ' +
+        'and the Live Dashboard reconnects to the same run after the update (no data loss).'
       if (!window.confirm(message)) return
 
       setApplyingUpdate(true)

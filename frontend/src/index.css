@@ -769,6 +769,19 @@ tfoot .aggregate-total-row:hover td {
 }
 .config-ok { color: var(--success); }
 .config-warn { color: var(--warning); }
+
+.resume-live-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  background: var(--brand-light);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 0.875rem;
+}
 .config-checkbox-row label {
   display: flex;
   align-items: center;

@@ -35,6 +35,7 @@ echo  JMeter Agent - Force update from repo
 echo ========================================
 echo  Application code will be replaced.
 echo  Your database, test results, and .env are PRESERVED.
+echo  Running JMeter tests continue during the brief UI restart.
 echo.
 
 echo Stopping services before update...

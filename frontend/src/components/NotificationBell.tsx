@@ -1,10 +1,10 @@
 import { memo, useEffect, useRef } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useNotifications } from '../context/NotificationsContext'
 import type { AppNotification } from '../types'
 
 function kindIcon(kind: string) {
-  if (kind.startsWith('test_')) return '●'
+  if (kind.startsWith('test_') || kind === 'run_resumed') return '●'
   if (kind.startsWith('host_')) return '⚠'
   if (kind.startsWith('update_')) return '↑'
   return 'i'
@@ -92,6 +92,7 @@ export const NotificationBell = memo(function NotificationBell() {
   } = useNotifications()
 
   const panelRef = useRef<HTMLDivElement>(null)
+  const navigate = useNavigate()
 
   useEffect(() => {
     if (!panelOpen) return
@@ -107,6 +108,11 @@ export const NotificationBell = memo(function NotificationBell() {
   function handleAction(action: AppNotification['actions'][number]) {
     if (action.type === 'update' && action.version) {
       void applyUpdate(action.version)
+      return
+    }
+    if ((action.type === 'view_run' || action.type === 'open_live') && action.run_id) {
+      closePanel()
+      navigate(`/live/${action.run_id}`)
     }
   }
 

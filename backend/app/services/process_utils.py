@@ -86,6 +86,23 @@ def is_process_alive(pid: int) -> bool:
     return _process_alive(pid)
 
 
+def detached_creation_flags() -> int:
+    """
+    Launch JMeter outside the uvicorn process tree so stopping/updating the
+    API server does not kill an in-progress load test.
+
+    Avoid DETACHED_PROCESS — it breaks stdout redirect to the console log file.
+    """
+    flags = 0
+    if hasattr(subprocess, "CREATE_NO_WINDOW"):
+        flags |= subprocess.CREATE_NO_WINDOW
+    if hasattr(subprocess, "CREATE_NEW_PROCESS_GROUP"):
+        flags |= subprocess.CREATE_NEW_PROCESS_GROUP
+    # Break away from the parent Job Object (uvicorn) when present.
+    flags |= 0x01000000  # CREATE_BREAKAWAY_FROM_JOB
+    return flags
+
+
 def _taskkill_tree(pid: int) -> None:
     try:
         subprocess.run(

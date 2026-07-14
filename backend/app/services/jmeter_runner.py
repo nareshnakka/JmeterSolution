@@ -30,6 +30,7 @@ from app.services.host_resources import (
 )
 from app.services.system_config import get_system_config
 from app.services.process_utils import (
+    detached_creation_flags,
     ensure_jmeter_stopped,
     is_process_alive,
     kill_process_tree,
@@ -176,12 +177,14 @@ class RunManager:
 
             cwd = scripts_dir
             console_f = open(console_log, "w", encoding="utf-8", errors="replace")
+            # Detached: server stop/update must not kill the load test.
             proc = subprocess.Popen(
                 cmd,
                 cwd=str(cwd),
                 stdout=console_f,
                 stderr=subprocess.STDOUT,
-                creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0,
+                creationflags=detached_creation_flags(),
+                close_fds=True,
             )
             self._processes[test_run.id] = proc
             await asyncio.sleep(0.75)
@@ -204,7 +207,13 @@ class RunManager:
             loop = asyncio.get_event_loop()
             self._tail_tasks[test_run.id] = loop.create_task(
                 self._tail_and_monitor(
-                    test_run.id, jtl, proc, run_path, scripts_dir, started_at, console_f
+                    test_run.id,
+                    jtl,
+                    proc,
+                    run_path,
+                    scripts_dir,
+                    started_at,
+                    console_f,
                 )
             )
             self._resource_tasks[test_run.id] = loop.create_task(
@@ -230,7 +239,7 @@ class RunManager:
         run_id: int,
         run_path: Path,
         started_at: datetime,
-        proc: subprocess.Popen,
+        proc: subprocess.Popen | None,
     ) -> None:
         samples: list[dict] = []
         existing = load_host_resources(run_path)
@@ -260,25 +269,22 @@ class RunManager:
                 if alert_kinds:
                     db = SessionLocal()
                     try:
-                        test_run = db.get(TestRun, run_id)
-                        scenario_name = ""
-                        if test_run and test_run.scenario_id:
-                            scenario = db.get(Scenario, test_run.scenario_id)
-                            if scenario:
-                                scenario_name = scenario.name
+                        run = db.get(TestRun, run_id)
+                        scenario = db.get(Scenario, run.scenario_id) if run else None
+                        scenario_name = scenario.name if scenario else f"Run #{run_id}"
                         for kind in alert_kinds:
                             notify_host_resource_alert(
                                 db,
                                 run_id=run_id,
+                                scenario_name=scenario_name,
                                 kind=kind,
-                                cpu_percent=sample.get("cpu_percent"),
-                                memory_percent=sample.get("memory_percent"),
+                                cpu_percent=float(sample["cpu_percent"]),
+                                memory_percent=float(sample["memory_percent"]),
                                 duration_seconds=(
                                     CPU_DURATION_SECONDS
                                     if kind == "host_cpu_high"
                                     else MEMORY_DURATION_SECONDS
                                 ),
-                                scenario_name=scenario_name,
                             )
                     finally:
                         db.close()
@@ -294,14 +300,25 @@ class RunManager:
         self,
         run_id: int,
         jtl_path: Path,
-        proc: subprocess.Popen,
+        proc: subprocess.Popen | None,
         run_path: Path,
         scripts_dir: Path,
         started_at: datetime,
         console_f,
     ) -> None:
         agg = self._aggregators[run_id]
-        last_size = 0
+        last_size = jtl_path.stat().st_size if jtl_path.exists() else 0
+        # Seed aggregator from existing JTL when reattaching after a server restart/update.
+        if last_size > 0 and not agg.samples:
+            try:
+                seeded = parse_jtl_file(jtl_path)
+                seeded.test_run_id = run_id
+                seeded.status = TestRunStatus.RUNNING
+                self._aggregators[run_id] = seeded
+                agg = seeded
+            except Exception:
+                append_jtl_file(agg, jtl_path)
+
         tail_interval = max(settings.metrics_tail_interval_seconds, 1)
         heartbeat_ticks = max(1, round(10 / tail_interval))
         tick = 0
@@ -319,6 +336,11 @@ class RunManager:
                     if stable_size >= size:
                         _, changed = append_jtl_file(agg, jtl_path)
                         last_size = stable_size
+                elif size < last_size:
+                    # File truncated/replaced — resync
+                    last_size = 0
+                    _, changed = append_jtl_file(agg, jtl_path)
+                    last_size = jtl_path.stat().st_size if jtl_path.exists() else 0
 
             tick += 1
             subscribers = self._ws_subscribers.get(run_id)
@@ -331,11 +353,12 @@ class RunManager:
         if jtl_path.exists():
             append_jtl_file(agg, jtl_path)
 
-        exit_code = proc.returncode
-        try:
-            console_f.close()
-        except Exception:
-            pass
+        exit_code = proc.returncode if proc is not None else 0
+        if console_f:
+            try:
+                console_f.close()
+            except Exception:
+                pass
 
         collected = collect_run_artifacts(run_path, [scripts_dir, scripts_dir.parent], started_at)
 
@@ -386,24 +409,110 @@ class RunManager:
             db_after.close()
         self._finalize_run_process(run_id)
 
-    def _refresh_jmeter_pid(self, run_id: int, proc: subprocess.Popen) -> int | None:
+    def _refresh_jmeter_pid(self, run_id: int, proc: subprocess.Popen | None) -> int | None:
         jmeter_pid = self._jmeter_pids.get(run_id)
         if jmeter_pid and is_process_alive(jmeter_pid):
             return jmeter_pid
-        refreshed = resolve_jmeter_pid(proc.pid)
-        if refreshed > 0:
-            self._jmeter_pids[run_id] = refreshed
-            return refreshed
+        if proc is not None:
+            refreshed = resolve_jmeter_pid(proc.pid)
+            if refreshed > 0:
+                self._jmeter_pids[run_id] = refreshed
+                return refreshed
         return jmeter_pid
 
-    def _is_run_active(self, run_id: int, proc: subprocess.Popen, *, refresh_pid: bool = True) -> bool:
+    def _is_run_active(
+        self,
+        run_id: int,
+        proc: subprocess.Popen | None,
+        *,
+        refresh_pid: bool = True,
+    ) -> bool:
         if refresh_pid:
             jmeter_pid = self._refresh_jmeter_pid(run_id, proc)
         else:
             jmeter_pid = self._jmeter_pids.get(run_id)
         if jmeter_pid and is_process_alive(jmeter_pid):
             return True
-        return proc.poll() is None
+        if proc is not None:
+            return proc.poll() is None
+        return False
+
+    async def reattach_running_runs(self) -> list[int]:
+        """
+        After a server restart/update, resume monitoring for RUNNING tests whose
+        JMeter process is still alive. Does not start a new JMeter instance.
+        """
+        db = SessionLocal()
+        resumed: list[int] = []
+        try:
+            running = (
+                db.query(TestRun)
+                .filter(TestRun.status == TestRunStatus.RUNNING)
+                .order_by(TestRun.id.asc())
+                .all()
+            )
+            for run in running:
+                if run.id in self._tail_tasks and not self._tail_tasks[run.id].done():
+                    continue
+                if not run.pid or not is_process_alive(run.pid):
+                    continue
+
+                jtl = Path(run.jtl_path) if run.jtl_path else None
+                run_path = Path(run.run_dir) if run.run_dir else (jtl.parent if jtl else None)
+                if not jtl or not run_path or not run_path.is_dir():
+                    continue
+
+                scenario = db.get(Scenario, run.scenario_id)
+                scripts_dir = run_path
+                if scenario:
+                    application = db.get(Application, scenario.application_id)
+                    build = db.get(Build, application.build_id) if application else None
+                    release = db.get(Release, build.release_id) if build else None
+                    if release and build and application:
+                        scripts_dir = scenario_scripts_dir(release, build, application)
+                started_at = run.started_at or datetime.utcnow()
+
+                self._jmeter_pids[run.id] = run.pid
+                if jtl.exists():
+                    try:
+                        agg = parse_jtl_file(jtl)
+                    except Exception:
+                        agg = MetricsAggregator(
+                            test_run_id=run.id,
+                            bucket_seconds=settings.metrics_bucket_seconds,
+                            timeline_bucket_seconds=1,
+                        )
+                else:
+                    agg = MetricsAggregator(
+                        test_run_id=run.id,
+                        bucket_seconds=settings.metrics_bucket_seconds,
+                        timeline_bucket_seconds=1,
+                    )
+                agg.test_run_id = run.id
+                agg.status = TestRunStatus.RUNNING
+                self._aggregators[run.id] = agg
+
+                console_log = run_path / "jmeter-console.log"
+                console_f = open(console_log, "a", encoding="utf-8", errors="replace")
+                loop = asyncio.get_event_loop()
+                self._tail_tasks[run.id] = loop.create_task(
+                    self._tail_and_monitor(
+                        run.id,
+                        jtl,
+                        None,
+                        run_path,
+                        scripts_dir,
+                        started_at,
+                        console_f,
+                    )
+                )
+                self._resource_tasks[run.id] = loop.create_task(
+                    self._sample_host_resources(run.id, run_path, started_at, None)
+                )
+                resumed.append(run.id)
+        finally:
+            db.close()
+        return resumed
 
     def _finalize_run_process(self, run_id: int) -> None:
         """Ensure JMeter/Java is dead and drop process handles after a run ends."""
