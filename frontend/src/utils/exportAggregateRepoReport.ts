@@ -100,6 +100,7 @@ function styleMetaValue(cell: ExcelJS.Cell, opts?: { bold?: boolean }): void {
   cell.border = THIN_BORDER
 }
 
+/** Write label in A; merge B:C for the value and center-align. */
 function writeMetaRow(
   sheet: ExcelJS.Worksheet,
   rowNumber: number,
@@ -110,14 +111,17 @@ function writeMetaRow(
   labelCell.value = label
   styleMetaLabel(labelCell)
 
+  sheet.mergeCells(rowNumber, COL_SAMPLES, rowNumber, COL_RESPONSE)
   const valueCell = sheet.getCell(rowNumber, COL_SAMPLES)
   valueCell.value = value ?? ''
   styleMetaValue(valueCell, { bold: typeof value === 'number' })
+  // Keep border on trailing merge cell so the merged block edges render cleanly
+  sheet.getCell(rowNumber, COL_RESPONSE).border = THIN_BORDER
 }
 
 /**
  * Build the aggregate report workbook:
- * A = labels, B = values/samples, C = response time; transactions only.
+ * A = labels; meta values span merged B:C (center); table uses B = Samples, C = Response Time.
  * Omits Observation (CPU) and No. of Doc Records.
  */
 export async function buildAggregateRepoWorkbook(
@@ -164,9 +168,11 @@ export async function buildAggregateRepoWorkbook(
       const labelCell = sheet.getCell(row, COL_LABEL)
       labelCell.value = ''
       styleMetaLabel(labelCell)
+      sheet.mergeCells(row, COL_SAMPLES, row, COL_RESPONSE)
       const valueCell = sheet.getCell(row, COL_SAMPLES)
       valueCell.value = scenarioLines[i]
       styleMetaValue(valueCell)
+      sheet.getCell(row, COL_RESPONSE).border = THIN_BORDER
       row++
     }
   }
