@@ -507,8 +507,15 @@ tfoot .aggregate-total-row:hover td {
   white-space: nowrap;
 }
 
-.aggregate-export-btn {
+.aggregate-export-actions {
   margin-left: auto;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.aggregate-export-btn {
   white-space: nowrap;
 }
 

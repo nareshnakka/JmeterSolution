@@ -26,6 +26,7 @@ import {
   type AggregateSummaryConfig,
 } from '../utils/aggregateSummaryAvgs'
 import { downloadAggregateReportCsv } from '../utils/exportAggregateCsv'
+import { downloadAggregateRepoReport } from '../utils/exportAggregateRepoReport'
 import type { AggregateKindFilter } from '../types'
 
 const DEFAULT_REFRESH_SECONDS = 10
@@ -474,6 +475,27 @@ export default function LiveDashboard() {
     }
   }, [sortedTransactions, transactionTotals, id, kindFilter, labelFilter, toast])
 
+  const handleExportAggregateRepo = useCallback(async () => {
+    try {
+      const ok = await downloadAggregateRepoReport({
+        transactions: metrics?.transactions ?? [],
+        meta: {
+          run,
+          metrics,
+          config: aggregateSummaryConfig,
+        },
+        runId: id,
+      })
+      if (ok) {
+        toast.success('Repo report exported (transactions only)')
+      } else {
+        toast.error('No transaction rows to export')
+      }
+    } catch {
+      toast.error('Failed to export Repo report')
+    }
+  }, [metrics, run, aggregateSummaryConfig, id, toast])
+
   const usersChartData = metrics?.active_users_series ?? []
   const throughputChartData = metrics?.throughput_series ?? []
 
@@ -722,14 +744,25 @@ export default function LiveDashboard() {
               </div>
             ))}
           </div>
-          <button
-            type="button"
-            className="btn btn-secondary aggregate-export-btn"
-            disabled={sortedTransactions.length === 0}
-            onClick={handleExportAggregateCsv}
-          >
-            Export CSV
-          </button>
+          <div className="aggregate-export-actions">
+            <button
+              type="button"
+              className="btn btn-secondary aggregate-export-btn"
+              disabled={sortedTransactions.length === 0}
+              onClick={handleExportAggregateCsv}
+            >
+              Export CSV
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary aggregate-export-btn"
+              disabled={(metrics?.transactions?.length ?? 0) === 0}
+              onClick={handleExportAggregateRepo}
+              title="Excel report with Total/Load/Submit averages and transaction Label, Samples, Response Time"
+            >
+              Export as Repo
+            </button>
+          </div>
         </div>
         <table>
           <thead>
