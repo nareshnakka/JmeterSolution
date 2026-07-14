@@ -1537,6 +1537,49 @@ tfoot .aggregate-total-row:hover td {
   margin-bottom: 1.25rem;
 }
 
+.dashboard-results-loading {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  margin: -0.35rem 0 1.25rem;
+  padding: 0.875rem 1.1rem;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--brand);
+  border-radius: 6px;
+  background: var(--brand-light);
+}
+
+.dashboard-results-spinner {
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 50%;
+  border: 2.5px solid rgba(1, 118, 211, 0.25);
+  border-top-color: var(--brand);
+  flex-shrink: 0;
+  animation: dashboard-spin 0.75s linear infinite;
+}
+
+.dashboard-results-loading-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.dashboard-results-loading-text strong {
+  font-size: 0.9375rem;
+  color: var(--brand-dark);
+}
+
+.dashboard-results-loading-text span {
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+@keyframes dashboard-spin {
+  to { transform: rotate(360deg); }
+}
+
 .dashboard-stat-row {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));

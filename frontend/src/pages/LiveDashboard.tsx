@@ -83,6 +83,7 @@ export default function LiveDashboard() {
   )
   const [refreshGeneration, setRefreshGeneration] = useState(0)
   const [transactionTotals, setTransactionTotals] = useState<TransactionTotals | null>(null)
+  const [metricsFetched, setMetricsFetched] = useState(false)
 
   const refreshPollMs = refreshIntervalSeconds * 1000
   const refreshInFlightRef = useRef(false)
@@ -139,6 +140,7 @@ export default function LiveDashboard() {
   useEffect(() => {
     lastActiveThreadsRef.current = 0
     setMetrics(null)
+    setMetricsFetched(false)
     setGraphData([])
     setErrorsGraphData([])
     setDisplayedErrors([])
@@ -265,6 +267,8 @@ export default function LiveDashboard() {
           }
         } catch {
           /* JTL may not exist yet at test start */
+        } finally {
+          setMetricsFetched(true)
         }
       }
 
@@ -360,6 +364,7 @@ export default function LiveDashboard() {
       const msg = JSON.parse(ev.data)
       if (msg.type === 'metrics' && msg.data) {
         applyMetrics(msg.data as LiveMetrics)
+        setMetricsFetched(true)
         if (!errorSearchRef.current && (msg.data as LiveMetrics).errors?.length) {
           setDisplayedErrors((msg.data as LiveMetrics).errors)
         }
@@ -475,9 +480,9 @@ export default function LiveDashboard() {
     }
   }, [sortedTransactions, transactionTotals, id, kindFilter, labelFilter, toast])
 
-  const handleExportAggregateRepo = useCallback(async () => {
+  const handleExportAggregateRepo = useCallback(() => {
     try {
-      const ok = await downloadAggregateRepoReport({
+      const ok = downloadAggregateRepoReport({
         transactions: metrics?.transactions ?? [],
         meta: {
           run,
@@ -491,8 +496,10 @@ export default function LiveDashboard() {
       } else {
         toast.error('No transaction rows to export')
       }
-    } catch {
-      toast.error('Failed to export report')
+    } catch (err) {
+      console.error('Export Report failed', err)
+      const message = err instanceof Error && err.message ? err.message : 'Failed to export report'
+      toast.error(message)
     }
   }, [metrics, run, aggregateSummaryConfig, id, toast])
 
@@ -522,6 +529,12 @@ export default function LiveDashboard() {
     !stopping &&
     !isTerminalStatus(liveStatus) &&
     (liveStatus === 'running' || liveStatus === 'pending')
+
+  const hasResults =
+    (metrics?.total_samples ?? 0) > 0 || (metrics?.transactions?.length ?? 0) > 0
+  const showResultsLoading =
+    !hasResults &&
+    (!metricsFetched || isRunning || liveStatus === 'pending' || liveStatus === 'running' || stopping)
 
   const startTimeDisplay = useMemo(
     () => formatLocalDateTime(run?.started_at),
@@ -607,6 +620,20 @@ export default function LiveDashboard() {
           </button>
         )}
       </div>
+
+      {showResultsLoading && (
+        <div className="dashboard-results-loading" role="status" aria-live="polite">
+          <span className="dashboard-results-spinner" aria-hidden="true" />
+          <div className="dashboard-results-loading-text">
+            <strong>Waiting for results…</strong>
+            <span>
+              {isRunning || liveStatus === 'pending' || liveStatus === 'running'
+                ? 'JMeter is running. Aggregate metrics will appear when the first samples are recorded.'
+                : 'Loading dashboard metrics…'}
+            </span>
+          </div>
+        </div>
+      )}
 
       {(run || metrics) && (
         <DashboardSection
