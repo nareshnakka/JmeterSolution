@@ -487,12 +487,12 @@ export default function LiveDashboard() {
         runId: id,
       })
       if (ok) {
-        toast.success('Repo report exported (transactions only)')
+        toast.success('Report exported (transactions only)')
       } else {
         toast.error('No transaction rows to export')
       }
     } catch {
-      toast.error('Failed to export Repo report')
+      toast.error('Failed to export report')
     }
   }, [metrics, run, aggregateSummaryConfig, id, toast])
 
@@ -760,7 +760,7 @@ export default function LiveDashboard() {
               onClick={handleExportAggregateRepo}
               title="Excel report with Total/Load/Submit averages and transaction Label, Samples, Response Time"
             >
-              Export as Repo
+              Export Report
             </button>
           </div>
         </div>

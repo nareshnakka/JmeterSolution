@@ -13,10 +13,10 @@ export interface RepoReportMeta {
   scenarioDetails?: string[]
 }
 
-/** Exact Repo template columns: A = labels, F = samples/values, G = response time. */
+/** Compact columns: A = labels, B = samples/values, C = response time. */
 const COL_LABEL = 1
-const COL_SAMPLES = 6
-const COL_RESPONSE = 7
+const COL_SAMPLES = 2
+const COL_RESPONSE = 3
 
 const THIN_BORDER: Partial<ExcelJS.Borders> = {
   top: { style: 'thin', color: { argb: 'FF000000' } },
@@ -110,15 +110,14 @@ function writeMetaRow(
   labelCell.value = label
   styleMetaLabel(labelCell)
 
-  sheet.mergeCells(rowNumber, COL_SAMPLES, rowNumber, COL_RESPONSE)
   const valueCell = sheet.getCell(rowNumber, COL_SAMPLES)
   valueCell.value = value ?? ''
   styleMetaValue(valueCell, { bold: typeof value === 'number' })
 }
 
 /**
- * Build the Repo aggregate workbook to match the sample Excel layout exactly:
- * labels in A, values/samples in F, response time in G; transactions only.
+ * Build the aggregate report workbook:
+ * A = labels, B = values/samples, C = response time; transactions only.
  * Omits Observation (CPU) and No. of Doc Records.
  */
 export async function buildAggregateRepoWorkbook(
@@ -150,12 +149,8 @@ export async function buildAggregateRepoWorkbook(
   })
 
   sheet.getColumn(1).width = 48
-  sheet.getColumn(2).width = 3
-  sheet.getColumn(3).width = 3
-  sheet.getColumn(4).width = 3
-  sheet.getColumn(5).width = 3
-  sheet.getColumn(6).width = 14
-  sheet.getColumn(7).width = 16
+  sheet.getColumn(2).width = 18
+  sheet.getColumn(3).width = 16
 
   let row = 1
   writeMetaRow(sheet, row++, 'SmartSolve Version', versionLabel(meta.run) || '')
@@ -166,11 +161,9 @@ export async function buildAggregateRepoWorkbook(
   } else {
     writeMetaRow(sheet, row++, 'Scenario', scenarioLines[0])
     for (let i = 1; i < scenarioLines.length; i++) {
-      // Extra scenario lines: blank label cell bordered, value in F:G (sample layout)
       const labelCell = sheet.getCell(row, COL_LABEL)
       labelCell.value = ''
       styleMetaLabel(labelCell)
-      sheet.mergeCells(row, COL_SAMPLES, row, COL_RESPONSE)
       const valueCell = sheet.getCell(row, COL_SAMPLES)
       valueCell.value = scenarioLines[i]
       styleMetaValue(valueCell)
