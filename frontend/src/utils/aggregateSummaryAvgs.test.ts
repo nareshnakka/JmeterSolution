@@ -44,25 +44,40 @@ describe('computeMeanRowAvgMs', () => {
 })
 
 describe('computeAggregateSummaryAvgs', () => {
-  it('computes total as avg of load and submit transactions only', () => {
+  it('computes total from all transactions except Login / Log_In labels', () => {
     const rows = [
       tx('Home_L_Page', 100, 10),
       tx('Home_S_Form', 200, 10),
-      tx('Other_Transaction', 999, 10),
+      tx('Other_Transaction', 300, 10),
+      tx('AAA_Login_User', 900, 10),
+      tx('BBB_Log_In_SSO', 800, 10),
       tx('GET /health', 50, 5, 'request'),
     ]
     const result = computeAggregateSummaryAvgs(rows, DEFAULT_AGGREGATE_SUMMARY_CONFIG)
     expect(result).toHaveLength(3)
-    expect(result[0]).toEqual({ title: 'Total Avg', avg_ms: 150 })
+    // (100 + 200 + 300) / 3 — login rows and request excluded
+    expect(result[0]).toEqual({ title: 'Total Avg', avg_ms: 200 })
     expect(result[1]).toEqual({ title: 'Load Avg', avg_ms: 100 })
     expect(result[2]).toEqual({ title: 'Submit Avg', avg_ms: 200 })
   })
 
-  it('respects custom load and submit filters for total, load, and submit', () => {
+  it('excludes login variants case-insensitively with any prefix/postfix', () => {
+    const rows = [
+      tx('Step_A', 100, 1),
+      tx('PreLOGINPost', 999, 1),
+      tx('user_log_in_flow', 888, 1),
+      tx('LogIn', 777, 1),
+      tx('LOG_IN', 666, 1),
+    ]
+    const result = computeAggregateSummaryAvgs(rows, DEFAULT_AGGREGATE_SUMMARY_CONFIG)
+    expect(result[0].avg_ms).toBe(100)
+  })
+
+  it('respects custom load and submit filters; total still uses all tx minus login', () => {
     const rows = [
       tx('LOAD_step', 120, 2),
       tx('SUBMIT_step', 180, 2),
-      tx('OTHER_step', 900, 2),
+      tx('OTHER_step', 300, 2),
     ]
     const result = computeAggregateSummaryAvgs(rows, {
       ...DEFAULT_AGGREGATE_SUMMARY_CONFIG,
@@ -73,16 +88,17 @@ describe('computeAggregateSummaryAvgs', () => {
       aggregate_submit_avg_filter: 'SUBMIT',
     })
     expect(result[0].title).toBe('All Tx')
-    expect(result[0].avg_ms).toBe(150)
+    expect(result[0].avg_ms).toBe(200) // (120+180+300)/3
     expect(result[1].avg_ms).toBe(120)
     expect(result[2].avg_ms).toBe(180)
   })
 
-  it('excludes configured labels from total avg only', () => {
+  it('excludes configured labels from total avg only, and still drops login', () => {
     const rows = [
       tx('Home_L_Page', 100, 10),
       tx('Home_L_Init', 300, 10),
       tx('Home_S_Form', 200, 10),
+      tx('AAA_Login', 500, 10),
     ]
     const result = computeAggregateSummaryAvgs(rows, {
       ...DEFAULT_AGGREGATE_SUMMARY_CONFIG,
@@ -93,11 +109,12 @@ describe('computeAggregateSummaryAvgs', () => {
     expect(result[2].avg_ms).toBe(200)
   })
 
-  it('uses total avg filter when set and applies exclusions', () => {
+  it('uses total avg filter when set and applies exclusions plus login', () => {
     const rows = [
       tx('Home_L_Page', 100, 10),
       tx('Home_S_Form', 200, 10),
       tx('Home_S_Logout', 400, 10),
+      tx('Home_S_Login', 900, 10),
     ]
     const result = computeAggregateSummaryAvgs(rows, {
       ...DEFAULT_AGGREGATE_SUMMARY_CONFIG,

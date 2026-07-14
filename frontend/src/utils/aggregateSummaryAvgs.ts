@@ -26,6 +26,9 @@ export const DEFAULT_AGGREGATE_SUMMARY_CONFIG: AggregateSummaryConfig = {
   aggregate_submit_avg_filter: '_S_',
 }
 
+/** Always excluded from Total Avg (substring, case-insensitive). */
+export const TOTAL_AVG_BUILTIN_EXCLUDES = ['login', 'log_in']
+
 function round2(value: number): number {
   return Math.round(value * 100) / 100
 }
@@ -44,18 +47,6 @@ function filterTransactionsByLabel(
   const q = labelFilter.trim().toLowerCase()
   if (!q) return transactions
   return transactions.filter((t) => t.label.toLowerCase().includes(q))
-}
-
-function filterTransactionsByAnyLabel(
-  transactions: TransactionMetric[],
-  labelFilters: string[]
-): TransactionMetric[] {
-  const queries = labelFilters.map((f) => f.trim().toLowerCase()).filter(Boolean)
-  if (queries.length === 0) return []
-  return transactions.filter((t) => {
-    const label = t.label.toLowerCase()
-    return queries.some((q) => label.includes(q))
-  })
 }
 
 export function parseAggregateExcludeList(exclude: string): string[] {
@@ -84,10 +75,8 @@ function totalAvgIncludeRows(
   if (totalFilter) {
     return filterTransactionsByLabel(transactionRows, totalFilter)
   }
-  return filterTransactionsByAnyLabel(transactionRows, [
-    config.aggregate_load_avg_filter,
-    config.aggregate_submit_avg_filter,
-  ])
+  // Empty filter = all transactions (requests already removed).
+  return transactionRows
 }
 
 export function computeAggregateSummaryAvgs(
@@ -98,7 +87,10 @@ export function computeAggregateSummaryAvgs(
 
   const loadFilter = config.aggregate_load_avg_filter
   const submitFilter = config.aggregate_submit_avg_filter
-  const excludeList = parseAggregateExcludeList(config.aggregate_total_avg_exclude)
+  const excludeList = [
+    ...TOTAL_AVG_BUILTIN_EXCLUDES,
+    ...parseAggregateExcludeList(config.aggregate_total_avg_exclude),
+  ]
 
   const totalRows = excludeTransactionsByLabel(
     totalAvgIncludeRows(transactionRows, config),

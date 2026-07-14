@@ -338,11 +338,12 @@ export default function ConfigPage() {
         <form className="config-form" onSubmit={saveAggregateConfig}>
           <h2>Aggregate Report Summary</h2>
           <p className="config-section-hint">
-            Shown on the Live Dashboard aggregate report before Export CSV. Each value is the
-            average of the Avg (ms) column for matching transaction rows only (APIs/requests are
-            excluded). Label filters match substrings (case-insensitive). Total Avg includes
-            transactions matching its filter (or Load ∪ Submit when empty), minus any excluded
-            labels listed below. Use Save Aggregate Settings — no app update or server restart needed.
+            Shown on the Live Dashboard aggregate report before Export CSV / Export Report. Each
+            value is the average of the Avg (ms) column for matching transaction rows only
+            (APIs/requests are excluded). Label filters match substrings (case-insensitive). Total
+            Avg includes all transactions by default, always excluding any label containing Login
+            or Log_In (any case, prefix, or postfix), plus any extra excludes listed below. Use Save
+            Aggregate Settings — no app update or server restart needed.
           </p>
           <div className="config-form-grid">
             <div className="form-row">
@@ -360,11 +361,11 @@ export default function ConfigPage() {
                 id="aggregate_total_avg_filter"
                 value={form.aggregate_total_avg_filter}
                 onChange={(e) => setForm({ ...form, aggregate_total_avg_filter: e.target.value })}
-                placeholder="Empty = Load ∪ Submit filters"
+                placeholder="Empty = all transactions"
               />
               <span className="config-hint">
-                Include only transaction labels matching this substring. Leave empty to use Load
-                and Submit filters together.
+                Optional: include only transaction labels matching this substring. Leave empty to
+                include all transactions (minus Login / Log_In and excludes below).
               </span>
             </div>
             <div className="form-row">
@@ -377,7 +378,8 @@ export default function ConfigPage() {
                 rows={3}
               />
               <span className="config-hint">
-                Comma- or line-separated label substrings to remove from Total Avg (case-insensitive).
+                Extra comma- or line-separated label substrings to remove from Total Avg
+                (case-insensitive). Login and Log_In are always excluded automatically.
               </span>
             </div>
             <div className="form-row">
