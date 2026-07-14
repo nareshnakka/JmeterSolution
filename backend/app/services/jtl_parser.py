@@ -271,23 +271,49 @@ class MetricsAggregator:
                     last_users = users
         if not result:
             result.append({"t": 0.0, "users": 0})
-        return result
+        return self._downsample_timeline_points(result)
 
     def _filled_throughput_series(self) -> list[dict[str, Any]]:
-        """Hits per second across the active test window (zeros filled for empty seconds)."""
+        """Hits/s timeline — sparse change points (including drops to 0), then capped."""
         if not self._throughput_by_timeline_bucket and not self.samples:
             return []
 
         max_bucket = self._timeline_max_bucket()
         result: list[dict[str, Any]] = []
+        last_rate: float | None = None
         for bucket in range(0, max_bucket + 1):
             count = self._throughput_by_timeline_bucket.get(bucket, 0)
-            result.append(
-                {
-                    "t": self._timeline_time(bucket),
-                    "hits_per_sec": round(count / self.timeline_bucket_seconds, 2),
-                }
-            )
+            rate = round(count / self.timeline_bucket_seconds, 2)
+            if last_rate is None or rate != last_rate:
+                result.append({"t": self._timeline_time(bucket), "hits_per_sec": rate})
+                last_rate = rate
+        if not result:
+            result.append({"t": 0.0, "hits_per_sec": 0.0})
+        # Ensure the series ends at the active window so charts cover the full run.
+        end_t = self._timeline_time(max_bucket)
+        if result[-1]["t"] < end_t:
+            result.append({"t": end_t, "hits_per_sec": last_rate or 0.0})
+        return self._downsample_timeline_points(result)
+
+    def _downsample_timeline_points(
+        self,
+        points: list[dict[str, Any]],
+        max_points: int = 500,
+    ) -> list[dict[str, Any]]:
+        """Keep first/last points and evenly sample the middle for small API payloads."""
+        if len(points) <= max_points:
+            return points
+        if max_points < 3:
+            return points[:max_points]
+        result = [points[0]]
+        middle = max_points - 2
+        step = (len(points) - 2) / middle
+        for i in range(middle):
+            idx = 1 + int(i * step)
+            result.append(points[idx])
+        last = points[-1]
+        if result[-1].get("t") != last.get("t"):
+            result.append(last)
         return result
 
     def _append_error_bucket(
@@ -430,18 +456,23 @@ class MetricsAggregator:
         if cache_valid:
             if self.status == TestRunStatus.RUNNING:
                 elapsed = round(self._elapsed_seconds(), 1)
-                if self._snapshot_cache.elapsed_seconds != elapsed:
-                    return LiveMetricsSnapshot(
-                        **{
-                            **self._snapshot_cache.model_dump(),
+                cached = self._snapshot_cache
+                assert cached is not None
+                if (
+                    cached.elapsed_seconds != elapsed
+                    or cached.active_threads != self._last_all_threads
+                ):
+                    # Elapsed/thread heartbeat only — keep cached series/transactions.
+                    updated = cached.model_copy(
+                        update={
                             "elapsed_seconds": elapsed,
                             "active_threads": self._last_all_threads,
-                            "active_users_series": self._filled_active_users_series(),
-                            "throughput_series": self._filled_throughput_series(),
                         }
                     )
-            else:
-                return self._snapshot_cache
+                    self._snapshot_cache = updated
+                    return updated
+                return cached
+            return self._snapshot_cache
 
         elapsed = self._elapsed_seconds()
         snap = LiveMetricsSnapshot(

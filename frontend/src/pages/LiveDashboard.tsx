@@ -161,29 +161,50 @@ export default function LiveDashboard() {
     }
     setMetrics((prev) => {
       if (!prev) return m
-      const totalsUnchanged =
+
+      const sameCounters =
         prev.status === m.status &&
         prev.active_threads === m.active_threads &&
         prev.total_samples === m.total_samples &&
         prev.total_errors === m.total_errors &&
-        Math.abs(prev.elapsed_seconds - m.elapsed_seconds) < 0.5 &&
         prev.transactions.length === m.transactions.length
-      const seriesUnchanged =
-        prev.active_users_series.length === m.active_users_series.length &&
-        prev.throughput_series.length === m.throughput_series.length &&
-        (prev.response_codes?.length ?? 0) === (m.response_codes?.length ?? 0)
+
+      const usersTail = prev.active_users_series[prev.active_users_series.length - 1]
+      const usersNext = m.active_users_series[m.active_users_series.length - 1]
       const tpPrev = prev.throughput_series[prev.throughput_series.length - 1]
       const tpNext = m.throughput_series[m.throughput_series.length - 1]
-      const throughputTailUnchanged =
-        tpPrev?.t === tpNext?.t && tpPrev?.hits_per_sec === tpNext?.hits_per_sec
+
+      const sameSeriesShape =
+        prev.active_users_series.length === m.active_users_series.length &&
+        prev.throughput_series.length === m.throughput_series.length &&
+        (prev.response_codes?.length ?? 0) === (m.response_codes?.length ?? 0) &&
+        usersTail?.t === usersNext?.t &&
+        usersTail?.users === usersNext?.users &&
+        tpPrev?.t === tpNext?.t &&
+        tpPrev?.hits_per_sec === tpNext?.hits_per_sec
+
+      // Elapsed-only heartbeat: keep previous heavy arrays.
       if (
-        totalsUnchanged &&
-        seriesUnchanged &&
-        throughputTailUnchanged &&
-        prev.transactions === m.transactions
+        sameCounters &&
+        sameSeriesShape &&
+        Math.abs(prev.elapsed_seconds - m.elapsed_seconds) >= 0.5
+      ) {
+        return {
+          ...prev,
+          elapsed_seconds: m.elapsed_seconds,
+          active_threads: m.active_threads,
+          status: m.status,
+        }
+      }
+
+      if (
+        sameCounters &&
+        sameSeriesShape &&
+        Math.abs(prev.elapsed_seconds - m.elapsed_seconds) < 0.5
       ) {
         return prev
       }
+
       return m
     })
   }, [])
@@ -340,10 +361,10 @@ export default function LiveDashboard() {
 
   useEffect(() => {
     let cancelled = false
+    const terminal = isTerminalStatus(liveStatus)
 
     async function tick(showErrorsLoading: boolean) {
       if (cancelled) return
-      loadDashboardConfig()
       const skipMetrics =
         wsConnectedRef.current &&
         (liveStatus === 'running' || liveStatus === 'pending')
@@ -351,12 +372,26 @@ export default function LiveDashboard() {
     }
 
     void tick(true)
+
+    // Completed/failed/cancelled runs: one load is enough; avoid endless polling.
+    if (terminal && metricsFetched) {
+      return () => {
+        cancelled = true
+      }
+    }
+
     const interval = setInterval(() => void tick(false), pollIntervalMs)
     return () => {
       cancelled = true
       clearInterval(interval)
     }
-  }, [pollIntervalMs, refreshDashboard, liveStatus, isTerminalStatus, loadDashboardConfig])
+  }, [
+    pollIntervalMs,
+    refreshDashboard,
+    liveStatus,
+    isTerminalStatus,
+    metricsFetched,
+  ])
 
   useEffect(() => {
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
@@ -453,7 +488,15 @@ export default function LiveDashboard() {
     return () => {
       cancelled = true
     }
-  }, [id, metrics, kindFilter, labelFilter, filteredTransactions])
+    // Re-fetch totals only when sample count or filters change — not on every elapsed tick.
+  }, [
+    id,
+    metrics?.total_samples,
+    metrics?.elapsed_seconds,
+    kindFilter,
+    labelFilter,
+    filteredTransactions,
+  ])
 
   const sortedTransactions = useMemo(
     () => sortTransactions(filteredTransactions, sortField, sortDir),

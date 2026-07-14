@@ -148,7 +148,7 @@ export const ThroughputChart = memo(function ThroughputChart({
                 formatter={(value: number) => [`${value}`, 'Hits/s']}
               />
               <Area
-                type="monotone"
+                type="stepAfter"
                 dataKey="hits_per_sec"
                 stroke="none"
                 fill={chartTheme.throughput}
@@ -156,7 +156,7 @@ export const ThroughputChart = memo(function ThroughputChart({
                 isAnimationActive={false}
               />
               <Line
-                type="monotone"
+                type="stepAfter"
                 dataKey="hits_per_sec"
                 stroke={chartTheme.throughput}
                 strokeWidth={2}

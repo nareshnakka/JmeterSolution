@@ -38,7 +38,10 @@ export default function TestRunsPage() {
 
   useEffect(() => {
     loadRuns()
-    const t = setInterval(() => loadRuns({ silent: true }), 5000)
+    const t = setInterval(() => {
+      // Keep polling lightly so running/pending rows update; skip flashy loading.
+      loadRuns({ silent: true })
+    }, 5000)
     return () => clearInterval(t)
   }, [loadRuns])
 
