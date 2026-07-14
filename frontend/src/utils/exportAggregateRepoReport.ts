@@ -1,3 +1,4 @@
+import type ExcelJS from 'exceljs'
 import type { LiveMetrics, TestRun, TransactionMetric } from '../types'
 import {
   computeAggregateSummaryAvgs,
@@ -12,49 +13,16 @@ export interface RepoReportMeta {
   scenarioDetails?: string[]
 }
 
-function escapeXml(value: string | number): string {
-  return String(value)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-}
+/** A = labels, B = samples/values, C = response time (with Excel data bars). */
+const COL_LABEL = 1
+const COL_SAMPLES = 2
+const COL_RESPONSE = 3
 
-function cell(
-  text: string | number,
-  options?: {
-    styleId?: string
-    mergeAcross?: number
-    type?: 'String' | 'Number'
-  }
-): string {
-  const styleId = options?.styleId
-  const mergeAcross = options?.mergeAcross
-  const attrs = [
-    styleId ? `ss:StyleID="${styleId}"` : '',
-    mergeAcross != null ? `ss:MergeAcross="${mergeAcross}"` : '',
-  ]
-    .filter(Boolean)
-    .join(' ')
-  const attrPrefix = attrs ? ` ${attrs}` : ''
-  const value = String(text)
-  const forceType = options?.type
-  const isNumber =
-    forceType === 'Number' ||
-    (forceType !== 'String' &&
-      (typeof text === 'number' || (/^-?\d+(\.\d+)?$/.test(value) && value !== '')))
-  if (isNumber && value !== '') {
-    return `<Cell${attrPrefix}><Data ss:Type="Number">${escapeXml(value)}</Data></Cell>`
-  }
-  return `<Cell${attrPrefix}><Data ss:Type="String">${escapeXml(value)}</Data></Cell>`
-}
-
-function row(cells: string[], height = 18): string {
-  return `<Row ss:AutoFitHeight="0" ss:Height="${height}">${cells.join('')}</Row>`
-}
-
-function blankRow(): string {
-  return '<Row ss:AutoFitHeight="0" ss:Height="10"/>'
+const THIN_BORDER: Partial<ExcelJS.Borders> = {
+  top: { style: 'thin', color: { argb: 'FF000000' } },
+  left: { style: 'thin', color: { argb: 'FF000000' } },
+  bottom: { style: 'thin', color: { argb: 'FF000000' } },
+  right: { style: 'thin', color: { argb: 'FF000000' } },
 }
 
 function formatReportDate(iso?: string | null): string {
@@ -120,36 +88,59 @@ function scenarioValueLines(run: TestRun | null, extra?: string[]): string[] {
   return lines
 }
 
-/** Label in A; value merged across B:C and center-aligned. */
-function metaRow(label: string, value?: string | number | null, valueStyle = 'Value'): string {
-  const valueText = value == null ? '' : value
-  return row([
-    cell(label, { styleId: 'Label' }),
-    cell(valueText, {
-      styleId: valueStyle,
-      mergeAcross: 1,
-      type: typeof valueText === 'number' ? 'Number' : 'String',
-    }),
-  ])
+function styleMetaLabel(cell: ExcelJS.Cell): void {
+  cell.font = { name: 'Calibri', size: 11, bold: true }
+  cell.alignment = { vertical: 'middle', horizontal: 'left' }
+  cell.border = THIN_BORDER
 }
 
-function barStyleId(avgMs: number, maxMs: number): string {
-  if (maxMs <= 0) return 'Bar1'
-  const ratio = avgMs / maxMs
-  if (ratio >= 0.75) return 'Bar4'
-  if (ratio >= 0.5) return 'Bar3'
-  if (ratio >= 0.25) return 'Bar2'
-  return 'Bar1'
+function styleMetaValue(cell: ExcelJS.Cell, opts?: { bold?: boolean }): void {
+  cell.font = { name: 'Calibri', size: 11, bold: opts?.bold ?? false }
+  cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
+  cell.border = THIN_BORDER
+}
+
+async function loadExcelJS(): Promise<typeof ExcelJS> {
+  const mod = await import('exceljs')
+  const candidate = (mod as { default?: typeof ExcelJS }).default ?? (mod as typeof ExcelJS)
+  if (candidate && typeof candidate.Workbook === 'function') {
+    return candidate
+  }
+  const nested = (candidate as { default?: typeof ExcelJS } | undefined)?.default
+  if (nested && typeof nested.Workbook === 'function') {
+    return nested
+  }
+  throw new Error('ExcelJS Workbook is unavailable in this browser build')
+}
+
+/** Label in A; merge B:C for value; center-align the value. */
+function writeMetaRow(
+  sheet: ExcelJS.Worksheet,
+  rowNumber: number,
+  label: string,
+  value: string | number | null | undefined
+): void {
+  const labelCell = sheet.getCell(rowNumber, COL_LABEL)
+  labelCell.value = label
+  styleMetaLabel(labelCell)
+
+  sheet.mergeCells(rowNumber, COL_SAMPLES, rowNumber, COL_RESPONSE)
+  const valueCell = sheet.getCell(rowNumber, COL_SAMPLES)
+  valueCell.value = value ?? ''
+  styleMetaValue(valueCell, { bold: typeof value === 'number' })
 }
 
 /**
- * Build SpreadsheetML workbook (Excel-compatible .xls) with:
- * A = labels; merged B:C = summary values (center); table B = Samples, C = Response Time.
+ * Build an .xlsx Repo report:
+ * - Summary values: B:C merged + center aligned
+ * - Table: Label | Samples | Response Time
+ * - Response Time uses Excel data-bar conditional formatting (not solid cell fills)
  */
-export function buildAggregateRepoReportXml(
+export async function buildAggregateRepoWorkbook(
   transactions: TransactionMetric[],
   meta: RepoReportMeta
-): string {
+): Promise<ExcelJS.Workbook> {
+  const ExcelJSLib = await loadExcelJS()
   const transactionRows = filterTransactionsByKind(transactions, 'transaction')
   const avgs = computeAggregateSummaryAvgs(transactionRows, meta.config)
   const totalAvg = avgs[0]?.avg_ms
@@ -162,236 +153,160 @@ export function buildAggregateRepoReportXml(
   )
   const durationText = formatDuration(meta.metrics?.elapsed_seconds)
   const scenarioLines = scenarioValueLines(meta.run, meta.scenarioDetails)
-  const maxResponse = transactionRows.reduce((m, t) => Math.max(m, t.avg_ms || 0), 0)
 
-  const rowsXml: string[] = []
-  rowsXml.push(metaRow('SmartSolve Version', versionLabel(meta.run) || ''))
-  rowsXml.push(metaRow('Date', dateText))
+  const workbook = new ExcelJSLib.Workbook()
+  workbook.creator = 'JMeter Agent'
+  workbook.created = new Date()
+
+  const sheet = workbook.addWorksheet('Repo Report', {
+    views: [{ showGridLines: true }],
+  })
+
+  sheet.getColumn(1).width = 48
+  sheet.getColumn(2).width = 14
+  sheet.getColumn(3).width = 18
+
+  let row = 1
+  writeMetaRow(sheet, row++, 'SmartSolve Version', versionLabel(meta.run) || '')
+  writeMetaRow(sheet, row++, 'Date', dateText)
 
   if (scenarioLines.length === 0) {
-    rowsXml.push(metaRow('Scenario', ''))
+    writeMetaRow(sheet, row++, 'Scenario', '')
   } else {
-    rowsXml.push(metaRow('Scenario', scenarioLines[0]))
+    writeMetaRow(sheet, row++, 'Scenario', scenarioLines[0])
     for (let i = 1; i < scenarioLines.length; i++) {
-      rowsXml.push(metaRow('', scenarioLines[i]))
+      writeMetaRow(sheet, row++, '', scenarioLines[i])
     }
   }
 
-  rowsXml.push(metaRow('Users', users != null ? `${users} Unique Users` : ''))
-  rowsXml.push(metaRow('Ramp up duration', ''))
-  rowsXml.push(metaRow('Duration', durationText))
-  rowsXml.push(metaRow('Thinktime', ''))
-  rowsXml.push(
-    metaRow(
-      'Average Response Time',
-      totalAvg != null ? Math.round(totalAvg) : '',
-      'Result'
-    )
+  writeMetaRow(sheet, row++, 'Users', users != null ? `${users} Unique Users` : '')
+  writeMetaRow(sheet, row++, 'Ramp up duration', '')
+  writeMetaRow(sheet, row++, 'Duration', durationText)
+  writeMetaRow(sheet, row++, 'Thinktime', '')
+  writeMetaRow(
+    sheet,
+    row++,
+    'Average Response Time',
+    totalAvg != null ? Math.round(totalAvg) : ''
   )
-  rowsXml.push(
-    metaRow(
-      'Average Load Response time',
-      loadAvg != null ? Math.round(loadAvg) : '',
-      'Result'
-    )
+  writeMetaRow(
+    sheet,
+    row++,
+    'Average Load Response time',
+    loadAvg != null ? Math.round(loadAvg) : ''
   )
-  rowsXml.push(
-    metaRow(
-      'Average Submit Response time',
-      submitAvg != null ? Math.round(submitAvg) : '',
-      'Result'
-    )
+  writeMetaRow(
+    sheet,
+    row++,
+    'Average Submit Response time',
+    submitAvg != null ? Math.round(submitAvg) : ''
   )
 
-  rowsXml.push(blankRow())
+  row++ // blank separator
 
-  rowsXml.push(
-    row([
-      cell('Label', { styleId: 'Header' }),
-      cell('Samples', { styleId: 'HeaderNum' }),
-      cell('Response Time', { styleId: 'HeaderNum' }),
-    ])
-  )
+  const headerRow = row
+  const labelHeader = sheet.getCell(headerRow, COL_LABEL)
+  labelHeader.value = 'Label'
+  labelHeader.font = { name: 'Calibri', size: 11, bold: true }
+  labelHeader.alignment = { vertical: 'middle', horizontal: 'left' }
+  labelHeader.border = THIN_BORDER
+
+  const samplesHeader = sheet.getCell(headerRow, COL_SAMPLES)
+  samplesHeader.value = 'Samples'
+  samplesHeader.font = { name: 'Calibri', size: 11, bold: true }
+  samplesHeader.alignment = { vertical: 'middle', horizontal: 'center' }
+  samplesHeader.border = THIN_BORDER
+
+  const responseHeader = sheet.getCell(headerRow, COL_RESPONSE)
+  responseHeader.value = 'Response Time'
+  responseHeader.font = { name: 'Calibri', size: 11, bold: true }
+  responseHeader.alignment = { vertical: 'middle', horizontal: 'center' }
+  responseHeader.border = THIN_BORDER
+
+  row++
+  const dataStart = row
 
   for (const tx of transactionRows) {
-    const avg = Math.round(tx.avg_ms)
-    rowsXml.push(
-      row([
-        cell(tx.label, { styleId: 'TxLabel' }),
-        cell(tx.samples, { styleId: 'Num', type: 'Number' }),
-        cell(avg, { styleId: barStyleId(tx.avg_ms, maxResponse), type: 'Number' }),
-      ])
-    )
+    const labelCell = sheet.getCell(row, COL_LABEL)
+    labelCell.value = tx.label
+    labelCell.font = { name: 'Calibri', size: 11 }
+    labelCell.alignment = { vertical: 'middle', horizontal: 'left' }
+    labelCell.border = THIN_BORDER
+
+    const samplesCell = sheet.getCell(row, COL_SAMPLES)
+    samplesCell.value = tx.samples
+    samplesCell.font = { name: 'Calibri', size: 11 }
+    samplesCell.alignment = { vertical: 'middle', horizontal: 'center' }
+    samplesCell.border = THIN_BORDER
+
+    // Plain number cell — blue data bar comes from conditional formatting below
+    const responseCell = sheet.getCell(row, COL_RESPONSE)
+    responseCell.value = Math.round(tx.avg_ms)
+    responseCell.font = { name: 'Calibri', size: 11 }
+    responseCell.alignment = { vertical: 'middle', horizontal: 'center' }
+    responseCell.border = THIN_BORDER
+
+    row++
   }
 
-  return `<?xml version="1.0"?>
-<?mso-application progid="Excel.Sheet"?>
-<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
- xmlns:o="urn:schemas-microsoft-com:office:office"
- xmlns:x="urn:schemas-microsoft-com:office:excel"
- xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
- xmlns:html="http://www.w3.org/TR/REC-html40">
- <DocumentProperties xmlns="urn:schemas-microsoft-com:office:office">
-  <Title>Repo Aggregate Report</Title>
- </DocumentProperties>
- <Styles>
-  <Style ss:ID="Default" ss:Name="Normal">
-   <Alignment ss:Vertical="Center"/>
-   <Font ss:FontName="Calibri" ss:Size="11" ss:Color="#000000"/>
-   <Borders>
-    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1"/>
-    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1"/>
-    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1"/>
-    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1"/>
-   </Borders>
-  </Style>
-  <Style ss:ID="Label">
-   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
-   <Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1"/>
-   <Borders>
-    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1"/>
-    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1"/>
-    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1"/>
-    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1"/>
-   </Borders>
-  </Style>
-  <Style ss:ID="Value">
-   <Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/>
-   <Font ss:FontName="Calibri" ss:Size="11"/>
-   <Borders>
-    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1"/>
-    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1"/>
-    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1"/>
-    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1"/>
-   </Borders>
-  </Style>
-  <Style ss:ID="Result">
-   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
-   <Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1"/>
-   <Borders>
-    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1"/>
-    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1"/>
-    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1"/>
-    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1"/>
-   </Borders>
-  </Style>
-  <Style ss:ID="Header">
-   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
-   <Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1"/>
-   <Borders>
-    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1"/>
-    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1"/>
-    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1"/>
-    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1"/>
-   </Borders>
-  </Style>
-  <Style ss:ID="HeaderNum">
-   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
-   <Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1"/>
-   <Borders>
-    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1"/>
-    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1"/>
-    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1"/>
-    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1"/>
-   </Borders>
-  </Style>
-  <Style ss:ID="TxLabel">
-   <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
-   <Font ss:FontName="Calibri" ss:Size="11"/>
-   <Borders>
-    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1"/>
-    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1"/>
-    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1"/>
-    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1"/>
-   </Borders>
-  </Style>
-  <Style ss:ID="Num">
-   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
-   <Font ss:FontName="Calibri" ss:Size="11"/>
-   <Borders>
-    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1"/>
-    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1"/>
-    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1"/>
-    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1"/>
-   </Borders>
-  </Style>
-  <Style ss:ID="Bar1">
-   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
-   <Font ss:FontName="Calibri" ss:Size="11"/>
-   <Interior ss:Color="#DEEBF7" ss:Pattern="Solid"/>
-   <Borders>
-    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1"/>
-    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1"/>
-    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1"/>
-    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1"/>
-   </Borders>
-  </Style>
-  <Style ss:ID="Bar2">
-   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
-   <Font ss:FontName="Calibri" ss:Size="11"/>
-   <Interior ss:Color="#BDD7EE" ss:Pattern="Solid"/>
-   <Borders>
-    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1"/>
-    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1"/>
-    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1"/>
-    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1"/>
-   </Borders>
-  </Style>
-  <Style ss:ID="Bar3">
-   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
-   <Font ss:FontName="Calibri" ss:Size="11"/>
-   <Interior ss:Color="#9DC3E6" ss:Pattern="Solid"/>
-   <Borders>
-    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1"/>
-    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1"/>
-    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1"/>
-    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1"/>
-   </Borders>
-  </Style>
-  <Style ss:ID="Bar4">
-   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
-   <Font ss:FontName="Calibri" ss:Size="11" ss:Bold="1"/>
-   <Interior ss:Color="#5B9BD5" ss:Pattern="Solid"/>
-   <Borders>
-    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1"/>
-    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1"/>
-    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1"/>
-    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1"/>
-   </Borders>
-  </Style>
- </Styles>
- <Worksheet ss:Name="Repo Report">
-  <Table ss:DefaultRowHeight="18">
-   <Column ss:Index="1" ss:AutoFitWidth="0" ss:Width="320"/>
-   <Column ss:Index="2" ss:AutoFitWidth="0" ss:Width="90"/>
-   <Column ss:Index="3" ss:AutoFitWidth="0" ss:Width="110"/>
-   ${rowsXml.join('\n   ')}
-  </Table>
- </Worksheet>
-</Workbook>
-`
+  const dataEnd = row - 1
+  if (dataEnd >= dataStart) {
+    const ref = `${sheet.getCell(dataStart, COL_RESPONSE).address}:${sheet.getCell(dataEnd, COL_RESPONSE).address}`
+    sheet.addConditionalFormatting({
+      ref,
+      rules: [
+        {
+          type: 'dataBar',
+          priority: 1,
+          cfvo: [{ type: 'min' }, { type: 'max' }],
+          color: { argb: 'FF5B9BD5' },
+          gradient: true,
+          showValue: true,
+          border: false,
+          negativeBarColorSameAsPositive: true,
+        } as ExcelJS.DataBarRuleType & { color: { argb: string } },
+      ],
+    })
+  }
+
+  return workbook
 }
 
 function sanitizeFilenamePart(value: string): string {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'run'
 }
 
-export function downloadAggregateRepoReport(options: {
+function toBlobPart(buffer: ExcelJS.Buffer): BlobPart {
+  const raw = buffer as unknown
+  if (raw instanceof ArrayBuffer) return raw
+  if (raw instanceof Uint8Array) return raw
+  if (ArrayBuffer.isView(raw)) {
+    const view = raw as ArrayBufferView
+    return new Uint8Array(view.buffer, view.byteOffset, view.byteLength)
+  }
+  // Last resort for Node Buffer-like values
+  return new Uint8Array(raw as ArrayBuffer)
+}
+
+export async function downloadAggregateRepoReport(options: {
   transactions: TransactionMetric[]
   meta: RepoReportMeta
   runId: number
-}): boolean {
+}): Promise<boolean> {
   const { transactions, meta, runId } = options
   const rows = filterTransactionsByKind(transactions, 'transaction')
   if (rows.length === 0) return false
 
-  const xml = buildAggregateRepoReportXml(transactions, meta)
-  const blob = new Blob([xml], { type: 'application/vnd.ms-excel' })
+  const workbook = await buildAggregateRepoWorkbook(transactions, meta)
+  const buffer = await workbook.xlsx.writeBuffer()
+  const blob = new Blob([toBlobPart(buffer)], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  })
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   const scenarioPart = sanitizeFilenamePart(meta.run?.scenario_name || 'scenario')
   link.href = url
-  link.download = `repo-report-run-${runId}-${scenarioPart}.xls`
+  link.download = `repo-report-run-${runId}-${scenarioPart}.xlsx`
   link.rel = 'noopener'
   document.body.appendChild(link)
   link.click()

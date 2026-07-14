@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildAggregateRepoReportXml } from './exportAggregateRepoReport'
+import { buildAggregateRepoWorkbook } from './exportAggregateRepoReport'
 import { DEFAULT_AGGREGATE_SUMMARY_CONFIG } from './aggregateSummaryAvgs'
 import type { LiveMetrics, TestRun, TransactionMetric } from '../types'
 
@@ -26,8 +26,8 @@ function tx(
   }
 }
 
-describe('buildAggregateRepoReportXml', () => {
-  it('builds compact A/B/C layout with merged centered summary values', () => {
+describe('buildAggregateRepoWorkbook', () => {
+  it('uses Response Time data bars (not solid cell fills) and merged summary values', async () => {
     const rows = [
       tx('AAB_L_Dashboard', 3758, 1132),
       tx('AAE_S_CreateDocument_Submit', 5127, 1120),
@@ -51,34 +51,37 @@ describe('buildAggregateRepoReportXml', () => {
       active_users_series: [{ t: 1, users: 100 }],
     } as LiveMetrics
 
-    const xml = buildAggregateRepoReportXml(rows, {
+    const workbook = await buildAggregateRepoWorkbook(rows, {
       run,
       metrics,
       config: DEFAULT_AGGREGATE_SUMMARY_CONFIG,
     })
+    const sheet = workbook.getWorksheet('Repo Report')
+    expect(sheet).toBeTruthy()
+    if (!sheet) return
 
-    expect(xml).toContain('SmartSolve Version')
-    expect(xml).toContain('11.2026 R2 - Build 42')
-    expect(xml).toContain('ss:MergeAcross="1"')
-    expect(xml).toContain('ss:Horizontal="Center"')
-    expect(xml).toContain('Average Response Time')
-    expect(xml).toContain('Average Load Response time')
-    expect(xml).toContain('Average Submit Response time')
-    expect(xml).toContain('AAB_L_Dashboard')
-    expect(xml).toContain('AAE_S_CreateDocument_Submit')
-    expect(xml).toContain('1132')
-    expect(xml).toContain('3758')
-    expect(xml).not.toContain('GET /health')
-    expect(xml).not.toContain('Doc Records')
-    expect(xml).not.toContain('CPU')
-    expect(xml).toContain('100 Unique Users')
-    expect(xml).toContain('Label')
-    expect(xml).toContain('Samples')
-    expect(xml).toContain('Response Time')
-    // Only three columns declared
-    expect(xml).toContain('ss:Index="1"')
-    expect(xml).toContain('ss:Index="2"')
-    expect(xml).toContain('ss:Index="3"')
-    expect(xml).not.toContain('ss:Index="4"')
+    expect(sheet.getCell('A1').value).toBe('SmartSolve Version')
+    expect(sheet.getCell('B1').value).toBe('11.2026 R2 - Build 42')
+    expect(sheet.getCell('B1').isMerged).toBe(true)
+    expect(sheet.getCell('B1').alignment?.horizontal).toBe('center')
+
+    expect(sheet.getCell('A13').value).toBe('Label')
+    expect(sheet.getCell('B13').value).toBe('Samples')
+    expect(sheet.getCell('C13').value).toBe('Response Time')
+
+    expect(sheet.getCell('A14').value).toBe('AAB_L_Dashboard')
+    expect(sheet.getCell('B14').value).toBe(1132)
+    expect(sheet.getCell('C14').value).toBe(3758)
+    // No solid fill — data bars are conditional formatting
+    expect(sheet.getCell('C14').fill).toBeUndefined()
+    expect(sheet.getCell('C15').value).toBe(5127)
+    expect(sheet.getCell('C15').fill).toBeUndefined()
+
+    const rules = (sheet as unknown as { conditionalFormattings?: { ref: string; rules: { type: string }[] }[] })
+      .conditionalFormattings
+    expect(rules?.some((cf) => cf.rules.some((r) => r.type === 'dataBar'))).toBe(true)
+
+    const buf = await workbook.xlsx.writeBuffer()
+    expect(buf.byteLength).toBeGreaterThan(1000)
   })
 })

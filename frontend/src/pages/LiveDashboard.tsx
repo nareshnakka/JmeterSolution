@@ -480,9 +480,9 @@ export default function LiveDashboard() {
     }
   }, [sortedTransactions, transactionTotals, id, kindFilter, labelFilter, toast])
 
-  const handleExportAggregateRepo = useCallback(() => {
+  const handleExportAggregateRepo = useCallback(async () => {
     try {
-      const ok = downloadAggregateRepoReport({
+      const ok = await downloadAggregateRepoReport({
         transactions: metrics?.transactions ?? [],
         meta: {
           run,
