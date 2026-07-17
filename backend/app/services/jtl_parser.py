@@ -262,21 +262,34 @@ class MetricsAggregator:
         return min(max(buckets), sample_end)
 
     def _filled_active_users_series(self) -> list[dict[str, Any]]:
-        """Virtual users timeline — sparse step points (only value changes)."""
+        """Virtual users timeline with step-hold, always extended to the current end.
+
+        Sparse change points alone stop at the last ramp change, which leaves a gap
+        on the chart while elapsed time (and steady load) continues.
+        """
         if not self._users_by_timeline_bucket:
             return []
 
         max_bucket = self._timeline_max_bucket()
+        if self.status == TestRunStatus.RUNNING:
+            # Follow live elapsed (already capped when samples go quiet).
+            elapsed_bucket = int(self._elapsed_seconds() // self.timeline_bucket_seconds)
+            max_bucket = max(max_bucket, elapsed_bucket)
+
         result: list[dict[str, Any]] = []
         last_users = 0
         for bucket in range(0, max_bucket + 1):
             if bucket in self._users_by_timeline_bucket:
-                users = self._users_by_timeline_bucket[bucket]
-                if users != last_users:
-                    result.append({"t": self._timeline_time(bucket), "users": users})
-                    last_users = users
+                last_users = self._users_by_timeline_bucket[bucket]
+            if not result or result[-1]["users"] != last_users:
+                result.append({"t": self._timeline_time(bucket), "users": last_users})
+
+        end_t = self._timeline_time(max_bucket)
         if not result:
             result.append({"t": 0.0, "users": 0})
+        elif result[-1]["t"] < end_t:
+            # Hold the last known users out to the end of the test window.
+            result.append({"t": end_t, "users": last_users})
         return self._downsample_timeline_points(result)
 
     def _filled_throughput_series(self) -> list[dict[str, Any]]:
@@ -473,13 +486,25 @@ class MetricsAggregator:
                     cached.elapsed_seconds != elapsed
                     or cached.active_threads != self._last_all_threads
                 ):
-                    # Elapsed/thread heartbeat only — keep cached series/transactions.
-                    updated = cached.model_copy(
-                        update={
-                            "elapsed_seconds": elapsed,
-                            "active_threads": self._last_all_threads,
-                        }
-                    )
+                    # Elapsed/thread heartbeat — keep heavy arrays, but extend the
+                    # users plateau so the chart does not disconnect while RUNNING.
+                    updates: dict[str, Any] = {
+                        "elapsed_seconds": elapsed,
+                        "active_threads": self._last_all_threads,
+                    }
+                    users_series = list(cached.active_users_series or [])
+                    if users_series and elapsed > float(users_series[-1].get("t", 0)):
+                        last_users = int(users_series[-1].get("users", 0) or 0)
+                        end_pt = {"t": round(elapsed, 1), "users": last_users}
+                        if (
+                            len(users_series) >= 2
+                            and int(users_series[-2].get("users", -1) or -1) == last_users
+                        ):
+                            users_series = users_series[:-1] + [end_pt]
+                        else:
+                            users_series = users_series + [end_pt]
+                        updates["active_users_series"] = users_series
+                    updated = cached.model_copy(update=updates)
                     self._snapshot_cache = updated
                     return updated
                 return cached

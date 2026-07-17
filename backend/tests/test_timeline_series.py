@@ -40,6 +40,22 @@ def test_active_users_series_uses_one_second_buckets_with_step_hold():
     assert series[-1]["t"] == 2.0
 
 
+def test_active_users_series_holds_plateau_to_test_end():
+    """After ramp-up, keep drawing users to the last sample time (no chart gap)."""
+    agg = MetricsAggregator(test_run_id=1, start_wall_time=0, timeline_bucket_seconds=1)
+    agg.status = TestRunStatus.COMPLETED
+    _ingest(agg, timestamp_ms=0, all_threads=1)
+    _ingest(agg, timestamp_ms=10_000, all_threads=100)
+    # Steady load for another 20 minutes at 100 users — no further user-count changes.
+    _ingest(agg, timestamp_ms=1_200_000, all_threads=100)
+
+    series = agg._filled_active_users_series()
+    assert series[0] == {"t": 0.0, "users": 1}
+    assert {"t": 10.0, "users": 100} in series
+    assert series[-1]["t"] == 1200.0
+    assert series[-1]["users"] == 100
+
+
 def test_throughput_series_counts_all_hits_with_adaptive_buckets():
     agg = MetricsAggregator(test_run_id=1, start_wall_time=0, timeline_bucket_seconds=1)
     agg.status = TestRunStatus.COMPLETED
