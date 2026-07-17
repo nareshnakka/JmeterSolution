@@ -71,21 +71,24 @@ export const ActiveUsersChart = memo(function ActiveUsersChart({
                 formatter={(value: number) => [value, 'Active Users']}
               />
               <Area
-                type="stepAfter"
+                type="monotone"
                 dataKey="users"
-                stroke="none"
+                stroke={chartTheme.users}
+                strokeWidth={2}
                 fill={chartTheme.users}
-                fillOpacity={0.12}
+                fillOpacity={0.22}
                 isAnimationActive={false}
+                connectNulls
               />
               <Line
-                type="stepAfter"
+                type="monotone"
                 dataKey="users"
                 stroke={chartTheme.users}
                 strokeWidth={2}
                 dot={false}
                 name="Active Users"
                 isAnimationActive={false}
+                connectNulls
               />
             </ComposedChart>
           </ResponsiveContainer>
