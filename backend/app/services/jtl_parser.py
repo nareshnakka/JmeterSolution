@@ -6,6 +6,7 @@ import base64
 import csv
 import html
 import io
+import re
 import statistics
 import time
 import xml.etree.ElementTree as ET
@@ -789,6 +790,98 @@ def _is_xml_jtl(path: Path) -> bool:
     return head.startswith(b"<?xml") or head.startswith(b"<testResults")
 
 
+_JMETER_XML_TAG_RE = re.compile(
+    r"<(/?)(httpSample|sample|javaSample|testResults)\b([^>]*)>",
+    re.IGNORECASE,
+)
+_JMETER_SAMPLE_END_RE = re.compile(
+    r"</(?:httpSample|sample|javaSample)\s*>",
+    re.IGNORECASE,
+)
+_JMETER_SAMPLE_SELF_CLOSE_RE = re.compile(
+    r"<(?:httpSample|sample|javaSample)\b[^>]*/>",
+    re.IGNORECASE,
+)
+
+
+def _close_open_jmeter_xml_tags(prefix: str) -> str:
+    """Append closing tags for any still-open JMeter sample/root elements."""
+    open_tags: list[str] = []
+    for match in _JMETER_XML_TAG_RE.finditer(prefix):
+        closing, tag, attrs = match.group(1), match.group(2), match.group(3)
+        if attrs.rstrip().endswith("/"):
+            continue
+        local = tag.lower()
+        if closing:
+            if open_tags and open_tags[-1].lower() == local:
+                open_tags.pop()
+            continue
+        open_tags.append(tag)
+
+    repaired = prefix
+    for tag in reversed(open_tags):
+        repaired += f"</{tag}>"
+    return repaired
+
+
+def _recover_incomplete_jmeter_xml(text: str) -> str | None:
+    """
+    Recover parseable XML from an in-progress JMeter errors-trace.jtl.
+
+    While a test runs, JMeter writes samples but typically leaves </testResults>
+    unclosed until shutdown. A sample may also be truncated mid-write.
+    """
+    stripped = text.strip()
+    if not stripped or "<testResults" not in stripped:
+        return None
+
+    candidates: list[str] = []
+    if "</testResults>" not in stripped:
+        candidates.append(stripped + "\n</testResults>\n")
+    else:
+        candidates.append(stripped)
+
+    ends = [m.end() for m in _JMETER_SAMPLE_END_RE.finditer(stripped)]
+    ends.extend(m.end() for m in _JMETER_SAMPLE_SELF_CLOSE_RE.finditer(stripped))
+    for end in sorted(set(ends), reverse=True):
+        candidates.append(_close_open_jmeter_xml_tags(stripped[:end]))
+
+    seen: set[str] = set()
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        try:
+            ET.fromstring(candidate)
+            return candidate
+        except ET.ParseError:
+            continue
+    return None
+
+
+def _parse_jmeter_xml_jtl(path: Path) -> ET.Element | None:
+    """Parse JMeter XML JTL, including incomplete files written while a test is running."""
+    try:
+        return ET.parse(path).getroot()
+    except ET.ParseError:
+        pass
+    except OSError:
+        return None
+
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+
+    recovered = _recover_incomplete_jmeter_xml(text)
+    if recovered is None:
+        return None
+    try:
+        return ET.fromstring(recovered)
+    except ET.ParseError:
+        return None
+
+
 def _xml_local_tag(tag: str) -> str:
     return tag.rsplit("}", 1)[-1]
 
@@ -889,9 +982,8 @@ def _sample_from_xml_element(elem: ET.Element, sample_index: int) -> Sample | No
 
 
 def _find_matching_trace_sample_xml(path: Path, ref: Sample) -> Sample | None:
-    try:
-        root = ET.parse(path).getroot()
-    except ET.ParseError:
+    root = _parse_jmeter_xml_jtl(path)
+    if root is None:
         return None
 
     exact: Sample | None = None
