@@ -18,7 +18,7 @@ import type { ErrorSample, LiveMetrics, TestRun, TransactionMetric, TransactionT
 import { timelineScaleForSeconds } from '../utils/timeline'
 import { formatLocalDateTime } from '../utils/datetime'
 import { computeTransactionTotals, metricToTotals } from '../utils/transactionTotals'
-import { filterTransactionsByKind } from '../utils/transactionKind'
+import { filterTransactionsByKind, filterTransactionsByOutcome } from '../utils/transactionKind'
 import { defaultSortDir, sortTransactions, type AggregateSortField, type SortDir } from '../utils/sortTransactions'
 import {
   computeAggregateSummaryAvgs,
@@ -27,7 +27,7 @@ import {
 } from '../utils/aggregateSummaryAvgs'
 import { downloadAggregateReportCsv } from '../utils/exportAggregateCsv'
 import { downloadAggregateRepoReport } from '../utils/exportAggregateRepoReport'
-import type { AggregateKindFilter } from '../types'
+import type { AggregateKindFilter, AggregateOutcomeFilter } from '../types'
 
 const DEFAULT_REFRESH_SECONDS = 10
 
@@ -66,7 +66,8 @@ export default function LiveDashboard() {
   const [stopping, setStopping] = useState(false)
   const [selectedLabels, setSelectedLabels] = useState<Set<string>>(new Set())
   const [labelFilter, setLabelFilter] = useState('')
-  const [kindFilter, setKindFilter] = useState<AggregateKindFilter>('all')
+  const [outcomeFilter, setOutcomeFilter] = useState<AggregateOutcomeFilter>('pass')
+  const [kindFilter, setKindFilter] = useState<AggregateKindFilter>('transaction')
   const [sortField, setSortField] = useState<AggregateSortField>('label')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
   const [graphData, setGraphData] = useState<GraphSeries[]>([])
@@ -462,14 +463,23 @@ export default function LiveDashboard() {
   const filteredTransactions = useMemo(() => {
     if (!metrics) return []
     let rows = filterTransactionsByKind(metrics.transactions, kindFilter)
+    rows = filterTransactionsByOutcome(rows, outcomeFilter)
     if (!labelFilter) return rows
     const q = labelFilter.toLowerCase()
     return rows.filter((t) => t.label.toLowerCase().includes(q))
-  }, [metrics, labelFilter, kindFilter])
+  }, [metrics, labelFilter, kindFilter, outcomeFilter])
 
   useEffect(() => {
     if (!metrics || filteredTransactions.length === 0) {
       setTransactionTotals(null)
+      return
+    }
+    // Outcome filters are applied on aggregated label rows; recompute TOTAL from the
+    // visible set so Pass/Fail does not pull in excluded labels via the API.
+    if (outcomeFilter !== 'all') {
+      setTransactionTotals(
+        computeTransactionTotals(filteredTransactions, metrics.elapsed_seconds)
+      )
       return
     }
     let cancelled = false
@@ -494,6 +504,7 @@ export default function LiveDashboard() {
     metrics?.total_samples,
     metrics?.elapsed_seconds,
     kindFilter,
+    outcomeFilter,
     labelFilter,
     filteredTransactions,
   ])
@@ -523,6 +534,7 @@ export default function LiveDashboard() {
       totals: transactionTotals,
       runId: id,
       kindFilter,
+      outcomeFilter,
       labelFilter,
     })
     if (ok) {
@@ -530,7 +542,7 @@ export default function LiveDashboard() {
     } else {
       toast.error('No rows to export')
     }
-  }, [sortedTransactions, transactionTotals, id, kindFilter, labelFilter, toast])
+  }, [sortedTransactions, transactionTotals, id, kindFilter, outcomeFilter, labelFilter, toast])
 
   const handleExportAggregateRepo = useCallback(async () => {
     try {
@@ -775,37 +787,73 @@ export default function LiveDashboard() {
         }
       >
         <div className="aggregate-report-filters">
-          <div className="aggregate-kind-filters" role="radiogroup" aria-label="Sample type">
-            <label className="aggregate-kind-option">
-              <input
-                type="radio"
-                name="aggregate-kind"
-                value="transaction"
-                checked={kindFilter === 'transaction'}
-                onChange={() => setKindFilter('transaction')}
-              />
-              Transactions
-            </label>
-            <label className="aggregate-kind-option">
-              <input
-                type="radio"
-                name="aggregate-kind"
-                value="request"
-                checked={kindFilter === 'request'}
-                onChange={() => setKindFilter('request')}
-              />
-              APIs / Requests
-            </label>
-            <label className="aggregate-kind-option">
-              <input
-                type="radio"
-                name="aggregate-kind"
-                value="all"
-                checked={kindFilter === 'all'}
-                onChange={() => setKindFilter('all')}
-              />
-              All
-            </label>
+          <div className="aggregate-filter-groups">
+            <div className="aggregate-kind-filters" role="radiogroup" aria-label="Outcome">
+              <span className="aggregate-filter-group-label">Outcome</span>
+              <label className="aggregate-kind-option">
+                <input
+                  type="radio"
+                  name="aggregate-outcome"
+                  value="pass"
+                  checked={outcomeFilter === 'pass'}
+                  onChange={() => setOutcomeFilter('pass')}
+                />
+                Pass
+              </label>
+              <label className="aggregate-kind-option">
+                <input
+                  type="radio"
+                  name="aggregate-outcome"
+                  value="fail"
+                  checked={outcomeFilter === 'fail'}
+                  onChange={() => setOutcomeFilter('fail')}
+                />
+                Fail
+              </label>
+              <label className="aggregate-kind-option">
+                <input
+                  type="radio"
+                  name="aggregate-outcome"
+                  value="all"
+                  checked={outcomeFilter === 'all'}
+                  onChange={() => setOutcomeFilter('all')}
+                />
+                All
+              </label>
+            </div>
+            <div className="aggregate-kind-filters" role="radiogroup" aria-label="Sample type">
+              <span className="aggregate-filter-group-label">Type</span>
+              <label className="aggregate-kind-option">
+                <input
+                  type="radio"
+                  name="aggregate-kind"
+                  value="transaction"
+                  checked={kindFilter === 'transaction'}
+                  onChange={() => setKindFilter('transaction')}
+                />
+                Transactions
+              </label>
+              <label className="aggregate-kind-option">
+                <input
+                  type="radio"
+                  name="aggregate-kind"
+                  value="request"
+                  checked={kindFilter === 'request'}
+                  onChange={() => setKindFilter('request')}
+                />
+                APIs / Requests
+              </label>
+              <label className="aggregate-kind-option">
+                <input
+                  type="radio"
+                  name="aggregate-kind"
+                  value="all"
+                  checked={kindFilter === 'all'}
+                  onChange={() => setKindFilter('all')}
+                />
+                All
+              </label>
+            </div>
           </div>
           <input
             className="aggregate-label-filter"

@@ -190,6 +190,7 @@ export interface UpdateCheck {
 
 export type TransactionKind = 'transaction' | 'request'
 export type AggregateKindFilter = 'all' | TransactionKind
+export type AggregateOutcomeFilter = 'all' | 'pass' | 'fail'
 
 export interface TransactionMetric {
   label: string

@@ -1,4 +1,9 @@
-import type { AggregateKindFilter, TransactionMetric, TransactionKind } from '../types'
+import type {
+  AggregateKindFilter,
+  AggregateOutcomeFilter,
+  TransactionMetric,
+  TransactionKind,
+} from '../types'
 
 export function resolveTransactionKind(metric: TransactionMetric): TransactionKind {
   if (metric.kind === 'request') return 'request'
@@ -19,4 +24,14 @@ export function filterTransactionsByKind(
     )
   }
   return transactions.filter((t) => resolveTransactionKind(t) === 'transaction')
+}
+
+/** Pass = no errors on the label; Fail = at least one error. */
+export function filterTransactionsByOutcome(
+  transactions: TransactionMetric[],
+  outcomeFilter: AggregateOutcomeFilter
+): TransactionMetric[] {
+  if (outcomeFilter === 'all') return transactions
+  if (outcomeFilter === 'pass') return transactions.filter((t) => t.errors === 0)
+  return transactions.filter((t) => t.errors > 0)
 }

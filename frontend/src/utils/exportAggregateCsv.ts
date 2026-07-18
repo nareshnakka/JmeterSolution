@@ -80,19 +80,21 @@ export function downloadAggregateReportCsv(options: {
   totals: TransactionTotals | null
   runId: number
   kindFilter: string
+  outcomeFilter?: string
   labelFilter?: string
 }): boolean {
-  const { rows, totals, runId, kindFilter, labelFilter } = options
+  const { rows, totals, runId, kindFilter, outcomeFilter, labelFilter } = options
   if (rows.length === 0) return false
 
   const csv = buildAggregateReportCsv(rows, totals)
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
+  const outcomePart = sanitizeFilenamePart(outcomeFilter || 'all')
   const kindPart = sanitizeFilenamePart(kindFilter)
   const labelPart = labelFilter?.trim() ? `-${sanitizeFilenamePart(labelFilter)}` : ''
   link.href = url
-  link.download = `aggregate-report-run-${runId}-${kindPart}${labelPart}.csv`
+  link.download = `aggregate-report-run-${runId}-${outcomePart}-${kindPart}${labelPart}.csv`
   link.click()
   URL.revokeObjectURL(url)
   return true
