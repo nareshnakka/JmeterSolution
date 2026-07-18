@@ -17,8 +17,18 @@ if _resolved_url != settings.database_url:
     logger.info("Resolved database URL to %s", _resolved_url)
     settings.database_url = _resolved_url
 
-connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
-engine = create_engine(settings.database_url, connect_args=connect_args)
+_is_sqlite = settings.database_url.startswith("sqlite")
+connect_args: dict = {}
+if _is_sqlite:
+    # check_same_thread=False: FastAPI/thread pool may share connections.
+    # timeout: wait up to 30s on write locks instead of failing immediately.
+    connect_args = {"check_same_thread": False, "timeout": 30.0}
+
+engine = create_engine(
+    settings.database_url,
+    connect_args=connect_args,
+    pool_pre_ping=True,
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
@@ -26,14 +36,19 @@ class Base(DeclarativeBase):
     pass
 
 
-if settings.database_url.startswith("sqlite"):
+if _is_sqlite:
 
     @event.listens_for(engine, "connect")
     def _sqlite_on_connect(dbapi_connection, _connection_record) -> None:  # noqa: ANN001
         cursor = dbapi_connection.cursor()
+        # Safe performance PRAGMAs — do not rewrite or delete application data.
         cursor.execute("PRAGMA journal_mode=WAL")
         cursor.execute("PRAGMA synchronous=NORMAL")
         cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.execute("PRAGMA busy_timeout=30000")
+        cursor.execute("PRAGMA temp_store=MEMORY")
+        cursor.execute("PRAGMA cache_size=-65536")  # ~64 MiB page cache
+        cursor.execute("PRAGMA mmap_size=268435456")  # 256 MiB mmap when supported
         cursor.close()
 
 
@@ -43,6 +58,34 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+# Indexes for hot filter/order paths. CREATE INDEX IF NOT EXISTS is additive and safe.
+_SQLITE_INDEXES = (
+    "CREATE INDEX IF NOT EXISTS ix_test_runs_status ON test_runs (status)",
+    "CREATE INDEX IF NOT EXISTS ix_test_runs_scenario_id ON test_runs (scenario_id)",
+    "CREATE INDEX IF NOT EXISTS ix_test_runs_created_at ON test_runs (created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_test_runs_finished_at ON test_runs (finished_at)",
+    "CREATE INDEX IF NOT EXISTS ix_test_runs_is_archived ON test_runs (is_archived)",
+    "CREATE INDEX IF NOT EXISTS ix_test_runs_status_created ON test_runs (status, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_builds_release_id ON builds (release_id)",
+    "CREATE INDEX IF NOT EXISTS ix_applications_build_id ON applications (build_id)",
+    "CREATE INDEX IF NOT EXISTS ix_scenarios_application_id ON scenarios (application_id)",
+    "CREATE INDEX IF NOT EXISTS ix_scenario_files_scenario_id ON scenario_files (scenario_id)",
+    "CREATE INDEX IF NOT EXISTS ix_scenario_schedules_scenario_id ON scenario_schedules (scenario_id)",
+    "CREATE INDEX IF NOT EXISTS ix_scenario_schedules_active_next ON scenario_schedules (is_active, next_run_at)",
+)
+
+
+def _ensure_performance_indexes() -> None:
+    if not _is_sqlite:
+        return
+    with engine.begin() as conn:
+        for stmt in _SQLITE_INDEXES:
+            conn.execute(text(stmt))
+        # Refresh planner stats (no data changes).
+        conn.execute(text("ANALYZE"))
+    logger.info("SQLite performance indexes verified")
 
 
 def _migrate_schema() -> None:
@@ -118,6 +161,7 @@ def init_db():
 
     Base.metadata.create_all(bind=engine)
     _migrate_schema()
+    _ensure_performance_indexes()
 
     db = SessionLocal()
     try:

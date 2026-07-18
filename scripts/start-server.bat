@@ -29,5 +29,9 @@ if exist ..\.env (
   copy /Y ..\.env .env >nul 2>&1
 )
 
+REM Prevent console click-select from freezing uvicorn (Windows Quick Edit).
+powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%\scripts\disable-console-quickedit.ps1" >nul 2>&1
+
 echo Starting JMeter Agent Server on http://localhost:8080
+echo Tip: Do not click inside this window while the server runs — use the browser UI instead.
 uvicorn app.main:app --host 0.0.0.0 --port 8080
