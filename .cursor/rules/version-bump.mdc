@@ -1,0 +1,21 @@
+---
+description: Bump app version on every git commit/push
+alwaysApply: true
+---
+
+# Version bump on every update
+
+Whenever you create a git commit that pushes product changes (features, fixes, UI, backend), **always bump the app version in the same commit** (or immediately before it):
+
+```bash
+node scripts/bump-version.mjs --inc
+git add version.json frontend/src/version.ts
+```
+
+Include `version.json` and `frontend/src/version.ts` in the commit.
+
+- Do **not** skip the bump for “small” fixes.
+- Do **not** bump for commits that only touch docs, `.gitignore`, or generated noise like `tsconfig.tsbuildinfo`.
+- `npm run build` / `predev` only syncs `version.ts` — they do **not** increment. Use `--inc` for releases.
+
+After bumping, mention the new version (e.g. v1.2.53) when confirming the push.

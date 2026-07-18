@@ -1,6 +1,10 @@
 /**
- * Auto-bump patch version when git HEAD changes, then generate frontend version.ts.
- * Base release: v1.2.0 — each new commit increments patch (1.2.1, 1.2.2, …).
+ * Manage app version (version.json + frontend/src/version.ts).
+ *
+ *   node scripts/bump-version.mjs        — sync version.ts from version.json (no bump)
+ *   node scripts/bump-version.mjs --inc  — increment patch, then sync (use before each release commit)
+ *
+ * Base release: v1.2.0 — each intentional update increments patch (1.2.1, 1.2.2, …).
  */
 
 import { execSync } from 'child_process'
@@ -11,6 +15,7 @@ import { fileURLToPath } from 'url'
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const versionPath = join(root, 'version.json')
 const versionTsPath = join(root, 'frontend', 'src', 'version.ts')
+const shouldInc = process.argv.includes('--inc')
 
 function gitHead() {
   try {
@@ -23,18 +28,17 @@ function gitHead() {
 const version = JSON.parse(readFileSync(versionPath, 'utf8'))
 const head = gitHead()
 
-if (head) {
-  if (!version.lastCommit) {
-    version.lastCommit = head
-    console.log(`Version initialized at v${version.major}.${version.minor}.${version.patch}`)
-  } else if (head !== version.lastCommit) {
-    version.patch = (version.patch ?? 0) + 1
-    version.lastCommit = head
-    console.log(`Version bumped to v${version.major}.${version.minor}.${version.patch}`)
-  }
+if (shouldInc) {
+  version.patch = (version.patch ?? 0) + 1
+  if (head) version.lastCommit = head
+  console.log(`Version bumped to v${version.major}.${version.minor}.${version.patch}`)
   writeFileSync(versionPath, `${JSON.stringify(version, null, 2)}\n`)
+} else if (head && !version.lastCommit) {
+  version.lastCommit = head
+  writeFileSync(versionPath, `${JSON.stringify(version, null, 2)}\n`)
+  console.log(`Version initialized at v${version.major}.${version.minor}.${version.patch}`)
 } else {
-  console.log('Git not available; generating version file without bump')
+  console.log(`Version unchanged: v${version.major}.${version.minor}.${version.patch}`)
 }
 
 const label = `v${version.major}.${version.minor}.${version.patch}`
