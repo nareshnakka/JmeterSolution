@@ -14,9 +14,10 @@ from app.database import SessionLocal, init_db
 from app.services.system_config import get_system_config
 from app.services.run_queue import reconcile_stale_runs, process_run_queue
 from app.services.jmeter_runner import run_manager
-from app.routers import config, hierarchy, notifications, test_runs, websocket
+from app.routers import bug_reports, config, hierarchy, notifications, test_runs, websocket
 from app.services.scheduler import shutdown_scheduler, start_scheduler
 from app.services.update_manager import update_manager
+from app.logging_setup import setup_logging
 from app.version import version_full, version_label
 
 _frontend_dist = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
@@ -38,6 +39,7 @@ class SPAStaticFiles(StaticFiles):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    setup_logging()
     init_db()
     db = SessionLocal()
     resumed_runs: list[int] = []
@@ -95,6 +97,7 @@ app.include_router(hierarchy.router)
 app.include_router(test_runs.router)
 app.include_router(config.router)
 app.include_router(notifications.router)
+app.include_router(bug_reports.router)
 app.include_router(websocket.router)
 
 

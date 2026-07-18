@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     metrics_bucket_seconds: int = 5
     metrics_tail_interval_seconds: int = 3
     cors_origins: str = "http://localhost:5173,http://localhost:8080"
+    # Classic PAT with `repo` scope — used to open GitHub Issues for Report Bug.
+    github_token: str = ""
+    github_repo: str = "nareshnakka/JmeterSolution"
 
     @property
     def jmeter_bin(self) -> Path:

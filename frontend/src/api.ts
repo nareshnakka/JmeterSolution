@@ -271,4 +271,14 @@ export const api = {
     }),
   runAutoArchive: () =>
     request<{ archived: number[]; retention_months: number }>('/config/auto-archive', { method: 'POST' }),
+
+  getBugReportStatus: () =>
+    request<{ configured: boolean; repo: string }>('/bug-reports/status'),
+  submitBugReport: (form: FormData) =>
+    request<{
+      ok: boolean
+      issue_number: number
+      issue_url: string
+      files_uploaded: string[]
+    }>('/bug-reports', { method: 'POST', body: form }),
 }

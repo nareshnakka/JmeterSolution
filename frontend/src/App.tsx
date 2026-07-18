@@ -2,6 +2,7 @@ import { NavLink, Route, Routes } from 'react-router-dom'
 import { ArchiveGlobalStatus, ArchiveOperationsProvider } from './context/ArchiveOperationsContext'
 import { NotificationsProvider } from './context/NotificationsContext'
 import { NotificationBell } from './components/NotificationBell'
+import { ReportBugButton } from './components/ReportBugModal'
 import ResumeLiveBanner from './components/ResumeLiveBanner'
 import { ToastProvider } from './components/Toast'
 import HierarchyPage from './pages/HierarchyPage'
@@ -35,6 +36,7 @@ export default function App() {
           </div>
           <div className="app-header-actions">
             <ArchiveGlobalStatus />
+            <ReportBugButton />
             <NotificationBell />
           </div>
         </header>
