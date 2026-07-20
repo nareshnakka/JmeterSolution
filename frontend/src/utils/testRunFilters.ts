@@ -6,6 +6,7 @@ export interface TestRunColumnFilters {
   build: string
   application: string
   scenario: string
+  description: string
   tags: string
   runType: string
   status: string
@@ -24,6 +25,7 @@ export const EMPTY_RUN_FILTERS: TestRunColumnFilters = {
   build: '',
   application: '',
   scenario: '',
+  description: '',
   tags: '',
   runType: '',
   status: '',
@@ -63,6 +65,7 @@ export function filterTestRuns(runs: TestRun[], f: TestRunColumnFilters): TestRu
     if (!includes(r.build_name, f.build)) return false
     if (!includes(r.application_name, f.application)) return false
     if (!includes(r.scenario_name, f.scenario)) return false
+    if (!includes(r.notes, f.description)) return false
     if (!includesTags(r.scenario_tags, f.tags)) return false
     if (f.runType && r.run_type !== f.runType) return false
     if (f.status && r.status !== f.status) return false

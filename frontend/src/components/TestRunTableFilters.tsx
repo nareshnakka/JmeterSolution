@@ -96,6 +96,14 @@ export default function TestRunTableFilters({
         <input
           className="table-filter-input"
           placeholder="Filter…"
+          value={filters.description}
+          onChange={(e) => set('description', e.target.value)}
+        />
+      </th>
+      <th>
+        <input
+          className="table-filter-input"
+          placeholder="Filter…"
           value={filters.tags}
           onChange={(e) => set('tags', e.target.value)}
         />

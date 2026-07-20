@@ -175,6 +175,7 @@ export default function ComparePage() {
                 <th>Build</th>
                 <th>Application</th>
                 <th>Scenario</th>
+                <th>Description</th>
                 <th>Tags</th>
                 <th>Status</th>
                 <th>Finished</th>
@@ -197,6 +198,7 @@ export default function ComparePage() {
                   <td>{r.build_name}</td>
                   <td>{r.application_name ?? '—'}</td>
                   <td>{r.scenario_name}</td>
+                  <td title={r.notes?.trim() || undefined}>{r.notes?.trim() || '—'}</td>
                   <td><RunTags tags={r.scenario_tags} /></td>
                   <td>{statusBadge(r.status)}</td>
                   <td>{r.finished_at ? new Date(r.finished_at).toLocaleString() : '—'}</td>

@@ -274,6 +274,7 @@ export default function TestRunsPage() {
                 <th>Build</th>
                 <th>Application</th>
                 <th>Scenario</th>
+                <th>Description</th>
                 <th>Tags</th>
                 <th>Type</th>
                 <th>Status</th>
@@ -312,6 +313,7 @@ export default function TestRunsPage() {
                   <td>{r.build_name}</td>
                   <td>{r.application_name ?? '—'}</td>
                   <td>{r.scenario_name}</td>
+                  <td title={r.notes?.trim() || undefined}>{r.notes?.trim() || '—'}</td>
                   <td><RunTags tags={r.scenario_tags} /></td>
                   <td>{r.run_type}</td>
                   <td>{statusBadge(r.status)}</td>

@@ -684,6 +684,12 @@ export default function LiveDashboard() {
           </button>
         )}
       </div>
+      {run?.notes?.trim() && (
+        <p className="dashboard-run-description">
+          <span className="dashboard-run-description-label">Description</span>
+          {run.notes.trim()}
+        </p>
+      )}
 
       {showResultsLoading && (
         <div className="dashboard-results-loading" role="status" aria-live="polite">

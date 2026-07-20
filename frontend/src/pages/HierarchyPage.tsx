@@ -6,6 +6,7 @@ import JmeterPropertiesEditor, {
   appendJmeterPropertiesToForm,
   emptyJmeterProperty,
 } from '../components/JmeterPropertiesEditor'
+import StartRunModal from '../components/StartRunModal'
 import TagInput from '../components/TagInput'
 import { useToast } from '../components/Toast'
 import { localInputToUtcIso, localTimezoneLabel } from '../utils/datetime'
@@ -33,7 +34,8 @@ export default function HierarchyPage() {
   const [dependencyFiles, setDependencyFiles] = useState<File[]>([])
   const [jmeterProperties, setJmeterProperties] = useState<JmeterProperty[]>([emptyJmeterProperty()])
   const [scheduleAt, setScheduleAt] = useState('')
-
+  const [startTarget, setStartTarget] = useState<{ id: number; name: string } | null>(null)
+  const [starting, setStarting] = useState(false)
   useEffect(() => {
     api.listReleases().then(setReleases).catch(console.error)
   }, [])
@@ -93,10 +95,14 @@ export default function HierarchyPage() {
     setJmeterProperties([emptyJmeterProperty()])
   }
 
-  async function runNow(scenarioId: number, scenarioName: string) {
+  async function runNow(description: string) {
+    if (!startTarget) return
+    const { id: scenarioId, name: nameForToast } = startTarget
+    setStarting(true)
     try {
-      toast.info(`Starting test for "${scenarioName}"…`)
-      const run = await api.startTest(scenarioId)
+      toast.info(`Starting test for "${nameForToast}"…`)
+      const run = await api.startTest(scenarioId, description)
+      setStartTarget(null)
       if (run.status === 'failed') {
         toast.error(run.error_message || `Failed to start test (run #${run.id})`)
       } else if (run.status === 'pending') {
@@ -107,6 +113,8 @@ export default function HierarchyPage() {
       }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to start test')
+    } finally {
+      setStarting(false)
     }
   }
 
@@ -286,7 +294,7 @@ export default function HierarchyPage() {
                       <td>{s.jmx_filename}</td>
                       <td>
                         <button className="btn btn-secondary" style={{ marginRight: '0.5rem' }} onClick={() => cloneScenario(s.id)}>Clone</button>
-                        <button className="btn" style={{ marginRight: '0.5rem' }} onClick={() => runNow(s.id, s.name)}>Run Now</button>
+                        <button className="btn" style={{ marginRight: '0.5rem' }} onClick={() => setStartTarget({ id: s.id, name: s.name })}>Run Test</button>
                         <input
                           type="datetime-local"
                           value={scheduleAt}
@@ -304,6 +312,16 @@ export default function HierarchyPage() {
           </div>
         </>
       )}
+
+      <StartRunModal
+        open={Boolean(startTarget)}
+        scenarioName={startTarget?.name ?? ''}
+        submitting={starting}
+        onClose={() => {
+          if (!starting) setStartTarget(null)
+        }}
+        onConfirm={runNow}
+      />
     </>
   )
 }

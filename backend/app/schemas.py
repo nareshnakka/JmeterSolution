@@ -193,6 +193,9 @@ class ScenarioScheduleOut(BaseModel):
 
 # --- Test runs ---
 
+DEFAULT_RUN_DESCRIPTION = "Verification Test"
+
+
 class TestRunCreate(BaseModel):
     scenario_id: int
     notes: str | None = None
@@ -207,6 +210,11 @@ class TestRunSchedule(BaseModel):
     @classmethod
     def normalize_scheduled_at(cls, value: datetime) -> datetime:
         return naive_utc(value)
+
+
+def normalize_run_notes(notes: str | None) -> str:
+    cleaned = (notes or "").strip()
+    return cleaned or DEFAULT_RUN_DESCRIPTION
 
 
 class TestRunOut(BaseModel):

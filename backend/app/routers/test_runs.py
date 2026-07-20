@@ -33,6 +33,7 @@ from app.schemas import (
     TestRunSchedule,
     QueuedRunItem,
     TransactionMetric,
+    normalize_run_notes,
 )
 from app.services.jmeter_runner import run_manager
 from app.services.host_resources import load_host_resources
@@ -253,7 +254,7 @@ async def start_adhoc_run(body: TestRunCreate, db: Session = Depends(get_db)):
         scenario_id=body.scenario_id,
         run_type=TestRunType.ADHOC,
         status=TestRunStatus.PENDING,
-        notes=body.notes,
+        notes=normalize_run_notes(body.notes),
     )
     db.add(run)
     db.commit()
@@ -277,7 +278,7 @@ def schedule_run(body: TestRunSchedule, db: Session = Depends(get_db)):
         run_type=TestRunType.SCHEDULED,
         status=TestRunStatus.SCHEDULED,
         scheduled_at=body.scheduled_at,
-        notes=body.notes,
+        notes=normalize_run_notes(body.notes),
     )
     db.add(run)
     db.commit()

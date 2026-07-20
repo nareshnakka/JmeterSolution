@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import ScenarioEditModal from '../components/ScenarioEditModal'
 import ScenarioScheduleModal, { formatNextRun, ScheduleIcon } from '../components/ScenarioScheduleModal'
+import StartRunModal from '../components/StartRunModal'
 import { useToast } from '../components/Toast'
 import type { ScenarioListItem } from '../types'
 
@@ -38,6 +39,7 @@ export default function ScenariosPage() {
   const [lastRunStatus, setLastRunStatus] = useState('')
   const [editingScenario, setEditingScenario] = useState<ScenarioListItem | null>(null)
   const [schedulingScenario, setSchedulingScenario] = useState<ScenarioListItem | null>(null)
+  const [startTarget, setStartTarget] = useState<ScenarioListItem | null>(null)
 
   const hasActiveFilters = Boolean(
     release || build || application || name || tag || runFrom || runTo || lastRunStatus
@@ -70,11 +72,15 @@ export default function ScenariosPage() {
     return () => clearInterval(t)
   }, [loadScenarios])
 
-  async function runScenario(scenarioId: number, scenarioName: string) {
+  async function runScenario(description: string) {
+    if (!startTarget) return
+    const scenarioId = startTarget.id
+    const scenarioName = startTarget.name
     setActionId(scenarioId)
     try {
       toast.info(`Starting test for "${scenarioName}"…`)
-      const run = await api.startTest(scenarioId)
+      const run = await api.startTest(scenarioId, description)
+      setStartTarget(null)
       if (run.status === 'failed') {
         toast.error(run.error_message || `Failed to start test (run #${run.id})`)
         await loadScenarios()
@@ -396,9 +402,9 @@ export default function ScenariosPage() {
                           className="btn"
                           style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
                           disabled={actionId === s.id}
-                          onClick={() => runScenario(s.id, s.name)}
+                          onClick={() => setStartTarget(s)}
                         >
-                          Run
+                          Run Test
                         </button>
                       )}
                     </div>
@@ -426,6 +432,16 @@ export default function ScenariosPage() {
           onSaved={loadScenarios}
         />
       )}
+
+      <StartRunModal
+        open={Boolean(startTarget)}
+        scenarioName={startTarget?.name ?? ''}
+        submitting={actionId === startTarget?.id}
+        onClose={() => {
+          if (actionId == null) setStartTarget(null)
+        }}
+        onConfirm={runScenario}
+      />
     </>
   )
 }

@@ -12,6 +12,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
+from app.schemas import normalize_run_notes
 from app.models import ScheduleFrequency, ScenarioSchedule, TestRun, TestRunStatus, TestRunType
 from app.utils.datetime_utils import naive_utc, utc_now
 from app.services.run_queue import try_start_or_queue
@@ -219,7 +220,7 @@ async def _fire_scenario_schedule(schedule_id: int) -> None:
             run_type=TestRunType.SCHEDULED,
             status=TestRunStatus.PENDING,
             scheduled_at=utc_now(),
-            notes=schedule.notes,
+            notes=normalize_run_notes(schedule.notes),
         )
         db.add(run)
         db.commit()
