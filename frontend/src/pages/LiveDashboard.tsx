@@ -30,6 +30,7 @@ import { downloadAggregateRepoReport, prefetchExcelJS } from '../utils/exportAgg
 import type { AggregateKindFilter, AggregateOutcomeFilter } from '../types'
 
 const DEFAULT_REFRESH_SECONDS = 10
+const EXPORT_COOLDOWN_SECONDS = 30
 
 type GraphSeries = { label: string; points: { t: number; avg_ms: number }[] }
 type ErrorGraphSeries = { label: string; points: { t: number; errors: number }[] }
@@ -85,6 +86,9 @@ export default function LiveDashboard() {
   const [refreshGeneration, setRefreshGeneration] = useState(0)
   const [transactionTotals, setTransactionTotals] = useState<TransactionTotals | null>(null)
   const [metricsFetched, setMetricsFetched] = useState(false)
+  const [exportCooldownUntil, setExportCooldownUntil] = useState(0)
+  const [exportCooldownLeft, setExportCooldownLeft] = useState(0)
+  const [exportingReport, setExportingReport] = useState(false)
 
   const refreshPollMs = refreshIntervalSeconds * 1000
   const refreshInFlightRef = useRef(false)
@@ -547,7 +551,29 @@ export default function LiveDashboard() {
     }
   }, [sortField])
 
+  useEffect(() => {
+    if (exportCooldownUntil <= 0) {
+      setExportCooldownLeft(0)
+      return
+    }
+    const tick = () => {
+      const left = Math.max(0, Math.ceil((exportCooldownUntil - Date.now()) / 1000))
+      setExportCooldownLeft(left)
+      if (left <= 0) setExportCooldownUntil(0)
+    }
+    tick()
+    const timer = window.setInterval(tick, 250)
+    return () => window.clearInterval(timer)
+  }, [exportCooldownUntil])
+
+  const beginExportCooldown = useCallback(() => {
+    setExportCooldownUntil(Date.now() + EXPORT_COOLDOWN_SECONDS * 1000)
+  }, [])
+
+  const exportOnCooldown = exportCooldownLeft > 0 || exportingReport
+
   const handleExportAggregateCsv = useCallback(() => {
+    if (exportOnCooldown) return
     const ok = downloadAggregateReportCsv({
       rows: sortedTransactions,
       totals: transactionTotals,
@@ -557,13 +583,28 @@ export default function LiveDashboard() {
       labelFilter,
     })
     if (ok) {
-      toast.success('Aggregate report exported as CSV')
+      beginExportCooldown()
+      toast.success(
+        `Aggregate report exported as CSV. Next export available in ${EXPORT_COOLDOWN_SECONDS}s.`
+      )
     } else {
       toast.error('No rows to export')
     }
-  }, [sortedTransactions, transactionTotals, id, kindFilter, outcomeFilter, labelFilter, toast])
+  }, [
+    exportOnCooldown,
+    sortedTransactions,
+    transactionTotals,
+    id,
+    kindFilter,
+    outcomeFilter,
+    labelFilter,
+    beginExportCooldown,
+    toast,
+  ])
 
   const handleExportAggregateRepo = useCallback(async () => {
+    if (exportOnCooldown) return
+    setExportingReport(true)
     toast.info('Preparing Excel report…')
     try {
       const allRows = metrics?.transactions ?? []
@@ -578,7 +619,10 @@ export default function LiveDashboard() {
         runId: id,
       })
       if (ok) {
-        toast.success('Report exported')
+        beginExportCooldown()
+        toast.success(
+          `Report exported. Next export available in ${EXPORT_COOLDOWN_SECONDS}s.`
+        )
       } else {
         toast.error(
           'No rows to export. Switch Outcome to All or Type to All if the table is empty.'
@@ -588,8 +632,19 @@ export default function LiveDashboard() {
       console.error('Export Report failed', err)
       const message = err instanceof Error && err.message ? err.message : 'Failed to export report'
       toast.error(message)
+    } finally {
+      setExportingReport(false)
     }
-  }, [metrics, run, aggregateSummaryConfig, id, sortedTransactions, toast])
+  }, [
+    exportOnCooldown,
+    metrics,
+    run,
+    aggregateSummaryConfig,
+    id,
+    sortedTransactions,
+    beginExportCooldown,
+    toast,
+  ])
 
   const usersChartData = metrics?.active_users_series ?? []
   const throughputChartData = metrics?.throughput_series ?? []
@@ -905,21 +960,37 @@ export default function LiveDashboard() {
             <button
               type="button"
               className="btn btn-secondary aggregate-export-btn"
-              disabled={sortedTransactions.length === 0}
+              disabled={sortedTransactions.length === 0 || exportOnCooldown}
               onClick={handleExportAggregateCsv}
+              title={
+                exportCooldownLeft > 0
+                  ? `Export available again in ${exportCooldownLeft}s`
+                  : 'Export filtered rows as CSV'
+              }
             >
-              Export CSV
+              {exportCooldownLeft > 0 ? `Export CSV (${exportCooldownLeft}s)` : 'Export CSV'}
             </button>
             <button
               type="button"
               className="btn btn-secondary aggregate-export-btn"
               disabled={
-                sortedTransactions.length === 0 && (metrics?.transactions?.length ?? 0) === 0
+                exportOnCooldown ||
+                (sortedTransactions.length === 0 && (metrics?.transactions?.length ?? 0) === 0)
               }
               onClick={handleExportAggregateRepo}
-              title="Excel report with summary averages and Label, Samples, Response Time"
+              title={
+                exportCooldownLeft > 0
+                  ? `Export available again in ${exportCooldownLeft}s`
+                  : exportingReport
+                    ? 'Preparing Excel report…'
+                    : 'Excel report with summary averages and Label, Samples, Response Time'
+              }
             >
-              Export Report
+              {exportingReport
+                ? 'Exporting…'
+                : exportCooldownLeft > 0
+                  ? `Export Report (${exportCooldownLeft}s)`
+                  : 'Export Report'}
             </button>
           </div>
         </div>
