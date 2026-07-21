@@ -546,8 +546,10 @@ export default function LiveDashboard() {
 
   const handleExportAggregateRepo = useCallback(async () => {
     try {
+      const allRows = metrics?.transactions ?? []
       const ok = await downloadAggregateRepoReport({
-        transactions: metrics?.transactions ?? [],
+        transactions: allRows,
+        tableRows: sortedTransactions,
         meta: {
           run,
           metrics,
@@ -556,16 +558,18 @@ export default function LiveDashboard() {
         runId: id,
       })
       if (ok) {
-        toast.success('Report exported (transactions only)')
+        toast.success('Report exported')
       } else {
-        toast.error('No transaction rows to export')
+        toast.error(
+          'No rows to export. Switch Outcome to All or Type to All if the table is empty.'
+        )
       }
     } catch (err) {
       console.error('Export Report failed', err)
       const message = err instanceof Error && err.message ? err.message : 'Failed to export report'
       toast.error(message)
     }
-  }, [metrics, run, aggregateSummaryConfig, id, toast])
+  }, [metrics, run, aggregateSummaryConfig, id, sortedTransactions, toast])
 
   const usersChartData = metrics?.active_users_series ?? []
   const throughputChartData = metrics?.throughput_series ?? []
@@ -889,9 +893,11 @@ export default function LiveDashboard() {
             <button
               type="button"
               className="btn btn-secondary aggregate-export-btn"
-              disabled={(metrics?.transactions?.length ?? 0) === 0}
+              disabled={
+                sortedTransactions.length === 0 && (metrics?.transactions?.length ?? 0) === 0
+              }
               onClick={handleExportAggregateRepo}
-              title="Excel report with Total/Load/Submit averages and transaction Label, Samples, Response Time"
+              title="Excel report with summary averages and Label, Samples, Response Time"
             >
               Export Report
             </button>

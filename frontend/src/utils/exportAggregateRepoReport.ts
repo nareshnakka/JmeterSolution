@@ -101,6 +101,15 @@ function styleMetaValue(cell: ExcelJS.Cell, opts?: { bold?: boolean }): void {
 }
 
 async function loadExcelJS(): Promise<typeof ExcelJS> {
+  // ExcelJS writeBuffer expects Node Buffer in some browser builds.
+  if (!(globalThis as { Buffer?: unknown }).Buffer) {
+    const { Buffer } = await import('buffer')
+    ;(globalThis as { Buffer: typeof Buffer }).Buffer = Buffer
+    if (typeof window !== 'undefined') {
+      ;(window as unknown as { Buffer: typeof Buffer }).Buffer = Buffer
+    }
+  }
+
   const mod = await import('exceljs')
   const candidate = (mod as { default?: typeof ExcelJS }).default ?? (mod as typeof ExcelJS)
   if (candidate && typeof candidate.Workbook === 'function') {
@@ -138,11 +147,23 @@ function writeMetaRow(
  */
 export async function buildAggregateRepoWorkbook(
   transactions: TransactionMetric[],
-  meta: RepoReportMeta
+  meta: RepoReportMeta,
+  tableRows?: TransactionMetric[]
 ): Promise<ExcelJS.Workbook> {
   const ExcelJSLib = await loadExcelJS()
   const transactionRows = filterTransactionsByKind(transactions, 'transaction')
-  const avgs = computeAggregateSummaryAvgs(transactionRows, meta.config)
+  // Prefer explicit table rows (current aggregate filters). Fall back to transactions,
+  // then to the full metrics list so API-only scenarios can still export.
+  const exportRows =
+    (tableRows && tableRows.length > 0
+      ? tableRows
+      : transactionRows.length > 0
+        ? transactionRows
+        : transactions) ?? []
+  const avgs = computeAggregateSummaryAvgs(
+    transactionRows.length > 0 ? transactionRows : exportRows,
+    meta.config
+  )
   const totalAvg = avgs[0]?.avg_ms
   const loadAvg = avgs[1]?.avg_ms
   const submitAvg = avgs[2]?.avg_ms
@@ -226,7 +247,7 @@ export async function buildAggregateRepoWorkbook(
   row++
   const dataStart = row
 
-  for (const tx of transactionRows) {
+  for (const tx of exportRows) {
     const labelCell = sheet.getCell(row, COL_LABEL)
     labelCell.value = tx.label
     labelCell.font = { name: 'Calibri', size: 11 }
@@ -252,21 +273,25 @@ export async function buildAggregateRepoWorkbook(
   const dataEnd = row - 1
   if (dataEnd >= dataStart) {
     const ref = `${sheet.getCell(dataStart, COL_RESPONSE).address}:${sheet.getCell(dataEnd, COL_RESPONSE).address}`
-    sheet.addConditionalFormatting({
-      ref,
-      rules: [
-        {
-          type: 'dataBar',
-          priority: 1,
-          cfvo: [{ type: 'min' }, { type: 'max' }],
-          color: { argb: 'FF5B9BD5' },
-          gradient: true,
-          showValue: true,
-          border: false,
-          negativeBarColorSameAsPositive: true,
-        } as ExcelJS.DataBarRuleType & { color: { argb: string } },
-      ],
-    })
+    try {
+      sheet.addConditionalFormatting({
+        ref,
+        rules: [
+          {
+            type: 'dataBar',
+            priority: 1,
+            cfvo: [{ type: 'min' }, { type: 'max' }],
+            color: { argb: 'FF5B9BD5' },
+            gradient: true,
+            showValue: true,
+            border: false,
+            negativeBarColorSameAsPositive: true,
+          } as ExcelJS.DataBarRuleType & { color: { argb: string } },
+        ],
+      })
+    } catch {
+      // Data bars are cosmetic — never block the export if CF fails.
+    }
   }
 
   return workbook
@@ -279,25 +304,41 @@ function sanitizeFilenamePart(value: string): string {
 function toBlobPart(buffer: ExcelJS.Buffer): BlobPart {
   const raw = buffer as unknown
   if (raw instanceof ArrayBuffer) return raw
-  if (raw instanceof Uint8Array) return raw
+  if (typeof Blob !== 'undefined' && raw instanceof Blob) return raw
+  if (raw instanceof Uint8Array) {
+    // Copy into a standalone ArrayBuffer — some browsers reject shared/detached views.
+    return raw.slice().buffer
+  }
   if (ArrayBuffer.isView(raw)) {
     const view = raw as ArrayBufferView
-    return new Uint8Array(view.buffer, view.byteOffset, view.byteLength)
+    return new Uint8Array(view.buffer, view.byteOffset, view.byteLength).slice().buffer
   }
-  // Last resort for Node Buffer-like values
-  return new Uint8Array(raw as ArrayBuffer)
+  // Node Buffer polyfill / array-like
+  try {
+    return Uint8Array.from(raw as ArrayLike<number>).buffer
+  } catch {
+    throw new Error('Could not convert Excel workbook buffer for download')
+  }
 }
 
 export async function downloadAggregateRepoReport(options: {
   transactions: TransactionMetric[]
   meta: RepoReportMeta
   runId: number
+  /** Rows currently shown in the Aggregate Report table (preferred for the Excel body). */
+  tableRows?: TransactionMetric[]
 }): Promise<boolean> {
-  const { transactions, meta, runId } = options
-  const rows = filterTransactionsByKind(transactions, 'transaction')
-  if (rows.length === 0) return false
+  const { transactions, meta, runId, tableRows } = options
+  const transactionRows = filterTransactionsByKind(transactions, 'transaction')
+  const exportRows =
+    (tableRows && tableRows.length > 0
+      ? tableRows
+      : transactionRows.length > 0
+        ? transactionRows
+        : transactions) ?? []
+  if (exportRows.length === 0) return false
 
-  const workbook = await buildAggregateRepoWorkbook(transactions, meta)
+  const workbook = await buildAggregateRepoWorkbook(transactions, meta, exportRows)
   const buffer = await workbook.xlsx.writeBuffer()
   const blob = new Blob([toBlobPart(buffer)], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

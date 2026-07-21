@@ -84,4 +84,40 @@ describe('buildAggregateRepoWorkbook', () => {
     const buf = await workbook.xlsx.writeBuffer()
     expect(buf.byteLength).toBeGreaterThan(1000)
   })
+
+  it('falls back to request rows when no transaction controllers exist', async () => {
+    const rows = [tx('GET /health', 50, 5, 'request'), tx('POST /login', 120, 3, 'request')]
+    const workbook = await buildAggregateRepoWorkbook(rows, {
+      run: null,
+      metrics: null,
+      config: DEFAULT_AGGREGATE_SUMMARY_CONFIG,
+    })
+    const sheet = workbook.getWorksheet('Repo Report')
+    expect(sheet).toBeTruthy()
+    if (!sheet) return
+    const labels: string[] = []
+    sheet.eachRow((row) => {
+      const v = row.getCell(1).value
+      if (typeof v === 'string' && (v === 'GET /health' || v === 'POST /login')) labels.push(v)
+    })
+    expect(labels).toEqual(['GET /health', 'POST /login'])
+  })
+
+  it('uses provided tableRows for the Excel body', async () => {
+    const all = [tx('Keep', 100, 10), tx('Skip', 200, 10)]
+    const workbook = await buildAggregateRepoWorkbook(
+      all,
+      { run: null, metrics: null, config: DEFAULT_AGGREGATE_SUMMARY_CONFIG },
+      [all[0]]
+    )
+    const sheet = workbook.getWorksheet('Repo Report')
+    expect(sheet).toBeTruthy()
+    if (!sheet) return
+    const labels: string[] = []
+    sheet.eachRow((row) => {
+      const v = row.getCell(1).value
+      if (typeof v === 'string' && (v === 'Keep' || v === 'Skip')) labels.push(v)
+    })
+    expect(labels).toEqual(['Keep'])
+  })
 })
