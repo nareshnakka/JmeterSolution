@@ -5,6 +5,7 @@ import ScenarioEditModal from '../components/ScenarioEditModal'
 import ScenarioScheduleModal, { formatNextRun, ScheduleIcon } from '../components/ScenarioScheduleModal'
 import StartRunModal from '../components/StartRunModal'
 import { useToast } from '../components/Toast'
+import { ACTIVE_POLL, IDLE_POLL, useActiveRuns } from '../context/ActiveRunsContext'
 import type { ScenarioListItem } from '../types'
 
 const RUN_STATUSES = [
@@ -25,6 +26,7 @@ function statusBadge(status?: string | null) {
 export default function ScenariosPage() {
   const navigate = useNavigate()
   const toast = useToast()
+  const { pollMs, refreshActivity } = useActiveRuns()
   const [scenarios, setScenarios] = useState<ScenarioListItem[]>([])
   const [loading, setLoading] = useState(false)
   const [actionId, setActionId] = useState<number | null>(null)
@@ -66,11 +68,13 @@ export default function ScenariosPage() {
     }
   }, [release, build, application, name, tag, runFrom, runTo, lastRunStatus])
 
+  const listPollMs = pollMs(ACTIVE_POLL.scenariosMs, IDLE_POLL.scenariosMs)
+
   useEffect(() => {
     loadScenarios()
-    const t = setInterval(loadScenarios, 8000)
+    const t = setInterval(loadScenarios, listPollMs)
     return () => clearInterval(t)
-  }, [loadScenarios])
+  }, [loadScenarios, listPollMs])
 
   async function runScenario(description: string) {
     if (!startTarget) return
@@ -81,6 +85,7 @@ export default function ScenariosPage() {
       toast.info(`Starting test for "${scenarioName}"…`)
       const run = await api.startTest(scenarioId, description)
       setStartTarget(null)
+      void refreshActivity()
       if (run.status === 'failed') {
         toast.error(run.error_message || `Failed to start test (run #${run.id})`)
         await loadScenarios()

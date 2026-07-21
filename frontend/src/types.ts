@@ -138,6 +138,13 @@ export interface TestRunQueue {
   scheduled: ScheduledQueueItem[]
 }
 
+/** Lightweight probe for adaptive idle/active UI polling. */
+export interface TestRunActivity {
+  running: number
+  pending: number
+  has_active: boolean
+}
+
 export interface HostResourceSample {
   t: number
   cpu_percent: number

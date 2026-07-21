@@ -10,6 +10,7 @@ import {
 } from 'react'
 import { api } from '../api'
 import { useToast } from '../components/Toast'
+import { ACTIVE_POLL, IDLE_POLL, useActiveRuns } from './ActiveRunsContext'
 import type { AppNotification, UpdateCheck } from '../types'
 
 interface NotificationsContextValue {
@@ -34,11 +35,11 @@ interface NotificationsContextValue {
 
 const NotificationsContext = createContext<NotificationsContextValue | null>(null)
 
-const NOTIFICATION_POLL_MS = 15_000
 const UPDATE_CHECK_MS = 5 * 60_000
 
 export function NotificationsProvider({ children }: { children: ReactNode }) {
   const toast = useToast()
+  const { pollMs } = useActiveRuns()
   const [notifications, setNotifications] = useState<AppNotification[]>([])
   const [updateCheck, setUpdateCheck] = useState<UpdateCheck | null>(null)
   const [panelOpen, setPanelOpen] = useState(false)
@@ -46,6 +47,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(false)
   const [applyingUpdate, setApplyingUpdate] = useState(false)
   const lastUpdateCheckRef = useRef(0)
+  const notificationPollMs = pollMs(ACTIVE_POLL.notificationsMs, IDLE_POLL.notificationsMs)
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -74,9 +76,9 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     void refresh()
-    const timer = window.setInterval(() => void refresh(), NOTIFICATION_POLL_MS)
+    const timer = window.setInterval(() => void refresh(), notificationPollMs)
     return () => window.clearInterval(timer)
-  }, [refresh])
+  }, [refresh, notificationPollMs])
 
   const toggleSelected = useCallback((id: number) => {
     setSelectedIds((prev) => {

@@ -288,6 +288,14 @@ class TestRunQueueOut(BaseModel):
     scheduled: list[ScheduledQueueItem] = Field(default_factory=list)
 
 
+class TestRunActivityOut(BaseModel):
+    """Lightweight active-run probe for adaptive UI polling."""
+
+    running: int = 0
+    pending: int = 0
+    has_active: bool = False
+
+
 class HostResourceSample(BaseModel):
     t: float
     cpu_percent: float

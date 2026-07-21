@@ -4,6 +4,7 @@ import { api } from '../api'
 import RunTags from '../components/RunTags'
 import TestRunTableFilters from '../components/TestRunTableFilters'
 import { useToast } from '../components/Toast'
+import { ACTIVE_POLL, IDLE_POLL, useActiveRuns } from '../context/ActiveRunsContext'
 import type { TestRun } from '../types'
 import { isComparableTestRun } from '../types'
 import {
@@ -20,6 +21,7 @@ function statusBadge(status: string) {
 export default function TestRunsPage() {
   const toast = useToast()
   const navigate = useNavigate()
+  const { pollMs } = useActiveRuns()
   const [runs, setRuns] = useState<TestRun[]>([])
   const [loading, setLoading] = useState(true)
   const [columnFilters, setColumnFilters] = useState<TestRunColumnFilters>(EMPTY_RUN_FILTERS)
@@ -36,14 +38,16 @@ export default function TestRunsPage() {
       .finally(() => setLoading(false))
   }, [])
 
+  const listPollMs = pollMs(ACTIVE_POLL.testRunsMs, IDLE_POLL.testRunsMs)
+
   useEffect(() => {
     loadRuns()
     const t = setInterval(() => {
       // Keep polling lightly so running/pending rows update; skip flashy loading.
       loadRuns({ silent: true })
-    }, 5000)
+    }, listPollMs)
     return () => clearInterval(t)
-  }, [loadRuns])
+  }, [loadRuns, listPollMs])
 
   const filtered = useMemo(() => filterTestRuns(runs, columnFilters), [runs, columnFilters])
 

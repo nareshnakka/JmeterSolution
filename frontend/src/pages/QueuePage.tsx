@@ -5,6 +5,7 @@ import RunTags from '../components/RunTags'
 import ScenarioScheduleModal, { formatScheduleFrequency } from '../components/ScenarioScheduleModal'
 import { formatLocalDateTime } from '../utils/datetime'
 import { useToast } from '../components/Toast'
+import { ACTIVE_POLL, IDLE_POLL, useActiveRuns } from '../context/ActiveRunsContext'
 import type { QueuedRunItem, ScenarioListItem, ScheduledQueueItem, TestRun, TestRunQueue } from '../types'
 
 function statusBadge(status: string) {
@@ -43,6 +44,7 @@ function toScenarioListItem(item: ScheduledQueueItem): ScenarioListItem {
 
 export default function QueuePage() {
   const toast = useToast()
+  const { pollMs } = useActiveRuns()
   const [queue, setQueue] = useState<TestRunQueue>({ running: null, queued: [], scheduled: [] })
   const [loading, setLoading] = useState(false)
   const [cancellingId, setCancellingId] = useState<string | null>(null)
@@ -64,11 +66,13 @@ export default function QueuePage() {
     }
   }, [])
 
+  const listPollMs = pollMs(ACTIVE_POLL.queueMs, IDLE_POLL.queueMs)
+
   useEffect(() => {
     loadQueue()
-    const t = setInterval(loadQueue, 4000)
+    const t = setInterval(loadQueue, listPollMs)
     return () => clearInterval(t)
-  }, [loadQueue])
+  }, [loadQueue, listPollMs])
 
   async function cancelQueued(run: QueuedRunItem) {
     const key = `run-${run.id}`

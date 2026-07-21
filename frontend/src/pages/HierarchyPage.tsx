@@ -9,12 +9,14 @@ import JmeterPropertiesEditor, {
 import StartRunModal from '../components/StartRunModal'
 import TagInput from '../components/TagInput'
 import { useToast } from '../components/Toast'
+import { useActiveRuns } from '../context/ActiveRunsContext'
 import { localInputToUtcIso, localTimezoneLabel } from '../utils/datetime'
 import type { Application, Build, JmeterProperty, Release, Scenario } from '../types'
 
 export default function HierarchyPage() {
   const navigate = useNavigate()
   const toast = useToast()
+  const { refreshActivity } = useActiveRuns()
   const [releases, setReleases] = useState<Release[]>([])
   const [selectedRelease, setSelectedRelease] = useState<Release | null>(null)
   const [builds, setBuilds] = useState<Build[]>([])
@@ -103,6 +105,7 @@ export default function HierarchyPage() {
       toast.info(`Starting test for "${nameForToast}"…`)
       const run = await api.startTest(scenarioId, description)
       setStartTarget(null)
+      void refreshActivity()
       if (run.status === 'failed') {
         toast.error(run.error_message || `Failed to start test (run #${run.id})`)
       } else if (run.status === 'pending') {

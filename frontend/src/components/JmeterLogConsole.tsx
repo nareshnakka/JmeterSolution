@@ -69,15 +69,17 @@ export default function JmeterLogConsole({
 
   useEffect(() => {
     if (refreshGeneration !== undefined) return
+    if (!isRunning) return
     const pollMs = refreshIntervalMs ?? LOG_SYNC_MS
     const interval = setInterval(() => void syncLogs(), pollMs)
     return () => clearInterval(interval)
-  }, [syncLogs, refreshIntervalMs, refreshGeneration])
+  }, [syncLogs, refreshIntervalMs, refreshGeneration, isRunning])
 
   useEffect(() => {
     if (refreshGeneration === undefined || refreshGeneration === 0) return
+    if (!isRunning) return
     void syncLogs()
-  }, [refreshGeneration, syncLogs])
+  }, [refreshGeneration, syncLogs, isRunning])
 
   useEffect(() => {
     if (expanded) {

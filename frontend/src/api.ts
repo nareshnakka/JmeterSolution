@@ -116,6 +116,8 @@ export const api = {
 
   listTestRuns: () => request<import('./types').TestRun[]>('/test-runs'),
   getTestRunQueue: () => request<import('./types').TestRunQueue>('/test-runs/queue'),
+  getTestRunActivity: () =>
+    request<import('./types').TestRunActivity>('/test-runs/activity'),
   getNotifications: () => request<import('./types').AppNotification[]>('/notifications'),
   clearNotifications: (ids?: number[]) =>
     request<{ deleted: number }>('/notifications/clear', {

@@ -305,7 +305,12 @@ export default function LiveDashboard() {
     errorsGraphIsActiveRef.current = errorsGraphIsActive
   }, [errorsGraphIsActive])
 
-  const refreshDashboard = useCallback(async (options?: { showErrorsLoading?: boolean; skipMetrics?: boolean }) => {
+  const refreshDashboard = useCallback(async (options?: {
+    showErrorsLoading?: boolean
+    skipMetrics?: boolean
+    /** When false, skip heavy graph endpoints (used to stagger completed-report loads). */
+    includeGraphs?: boolean
+  }) => {
     if (refreshInFlightRef.current) {
       pendingRefreshRef.current = true
       return
@@ -328,6 +333,7 @@ export default function LiveDashboard() {
 
       const secondary: Promise<void>[] = []
       const skipErrorsFetch = wsConnectedRef.current && !errorSearchRef.current
+      const includeGraphs = options?.includeGraphs !== false
 
       if (options?.showErrorsLoading) {
         setErrorsLoading(true)
@@ -345,7 +351,7 @@ export default function LiveDashboard() {
         setErrorsLoading(false)
       }
 
-      if (graphIsActiveRef.current) {
+      if (includeGraphs && graphIsActiveRef.current) {
         const cumulative = graphMode === 'cumulative'
         const labels = cumulative ? ['ALL'] : Array.from(selectedLabels)
         if (cumulative || labels.length > 0) {
@@ -357,7 +363,7 @@ export default function LiveDashboard() {
         }
       }
 
-      if (errorsGraphIsActiveRef.current) {
+      if (includeGraphs && errorsGraphIsActiveRef.current) {
         const allLabels = errorsGraphMode === 'all'
         const labels = allLabels ? ['ALL'] : Array.from(selectedLabels)
         if (allLabels || labels.length > 0) {
@@ -382,29 +388,36 @@ export default function LiveDashboard() {
 
   const liveStatus = metrics?.status || run?.status
   const pollIntervalMs = refreshPollMs
+  const runIsTerminal = isTerminalStatus(liveStatus)
 
   useEffect(() => {
     let cancelled = false
-    const terminal = isTerminalStatus(liveStatus)
+    const terminal = runIsTerminal
 
-    async function tick(showErrorsLoading: boolean) {
+    async function tick(showErrorsLoading: boolean, options?: { includeGraphs?: boolean }) {
       if (cancelled) return
       const skipMetrics =
         wsConnectedRef.current &&
         (liveStatus === 'running' || liveStatus === 'pending')
-      await refreshDashboard({ showErrorsLoading, skipMetrics })
+      await refreshDashboard({
+        showErrorsLoading,
+        skipMetrics,
+        includeGraphs: options?.includeGraphs,
+      })
     }
 
-    void tick(true)
-
-    // Completed/failed/cancelled runs: one load is enough; avoid endless polling.
-    if (terminal && metricsFetched) {
+    // Completed/failed/cancelled: one metrics/errors load only.
+    // Graphs load via delayed effects below so the server is not flooded.
+    if (terminal) {
+      void tick(true, { includeGraphs: false })
       return () => {
         cancelled = true
       }
     }
 
-    const interval = setInterval(() => void tick(false), pollIntervalMs)
+    void tick(true, { includeGraphs: true })
+
+    const interval = setInterval(() => void tick(false, { includeGraphs: true }), pollIntervalMs)
     return () => {
       cancelled = true
       clearInterval(interval)
@@ -413,11 +426,13 @@ export default function LiveDashboard() {
     pollIntervalMs,
     refreshDashboard,
     liveStatus,
-    isTerminalStatus,
-    metricsFetched,
+    runIsTerminal,
   ])
 
   useEffect(() => {
+    // Finished reports do not need a live WebSocket.
+    if (runIsTerminal) return
+
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
     const ws = new WebSocket(`${proto}://${window.location.host}/ws/test-runs/${id}`)
 
@@ -453,27 +468,58 @@ export default function LiveDashboard() {
     }
 
     return () => ws.close()
-  }, [id, applyMetrics, refreshDashboard, handleTerminalStatus, isTerminalStatus])
+  }, [id, runIsTerminal, applyMetrics, refreshDashboard, handleTerminalStatus, isTerminalStatus])
 
   useEffect(() => {
-    if (graphMode === 'cumulative') {
-      void loadGraph(true)
-    } else if (selectedLabels.size > 0) {
-      void loadGraph(false)
-    } else {
-      setGraphData([])
+    let cancelled = false
+    const kick = () => {
+      if (cancelled) return
+      if (graphMode === 'cumulative') {
+        void loadGraph(true)
+      } else if (selectedLabels.size > 0) {
+        void loadGraph(false)
+      } else {
+        setGraphData([])
+      }
     }
-  }, [graphMode, selectedLabelsKey, loadGraph])
+    // Stagger heavy graph parse after metrics when viewing a finished report.
+    if (runIsTerminal) {
+      const timer = window.setTimeout(kick, 450)
+      return () => {
+        cancelled = true
+        window.clearTimeout(timer)
+      }
+    }
+    kick()
+    return () => {
+      cancelled = true
+    }
+  }, [graphMode, selectedLabelsKey, loadGraph, selectedLabels, runIsTerminal])
 
   useEffect(() => {
-    if (errorsGraphMode === 'all') {
-      void loadErrorsGraph(true)
-    } else if (selectedLabels.size > 0) {
-      void loadErrorsGraph(false)
-    } else {
-      setErrorsGraphData([])
+    let cancelled = false
+    const kick = () => {
+      if (cancelled) return
+      if (errorsGraphMode === 'all') {
+        void loadErrorsGraph(true)
+      } else if (selectedLabels.size > 0) {
+        void loadErrorsGraph(false)
+      } else {
+        setErrorsGraphData([])
+      }
     }
-  }, [errorsGraphMode, selectedLabelsKey, loadErrorsGraph])
+    if (runIsTerminal) {
+      const timer = window.setTimeout(kick, 700)
+      return () => {
+        cancelled = true
+        window.clearTimeout(timer)
+      }
+    }
+    kick()
+    return () => {
+      cancelled = true
+    }
+  }, [errorsGraphMode, selectedLabelsKey, loadErrorsGraph, selectedLabels, runIsTerminal])
 
   useEffect(() => {
     if (skipSearchRefreshRef.current) {

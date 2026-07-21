@@ -50,14 +50,16 @@ function HostResourceChart({
 
   useEffect(() => {
     if (refreshGeneration !== undefined) return
+    if (!isRunning) return
     const interval = setInterval(() => void loadResources(), pollMs)
     return () => clearInterval(interval)
-  }, [loadResources, pollMs, refreshGeneration])
+  }, [loadResources, pollMs, refreshGeneration, isRunning])
 
   useEffect(() => {
     if (refreshGeneration === undefined || refreshGeneration === 0) return
+    if (!isRunning) return
     void loadResources()
-  }, [refreshGeneration, loadResources])
+  }, [refreshGeneration, loadResources, isRunning])
 
   const chartData = useMemo(
     () =>

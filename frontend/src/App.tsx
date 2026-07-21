@@ -1,5 +1,6 @@
 import { NavLink, Route, Routes } from 'react-router-dom'
 import { ArchiveGlobalStatus, ArchiveOperationsProvider } from './context/ArchiveOperationsContext'
+import { ActiveRunsProvider } from './context/ActiveRunsContext'
 import { NotificationsProvider } from './context/NotificationsContext'
 import { NotificationBell } from './components/NotificationBell'
 import { ReportBugButton } from './components/ReportBugModal'
@@ -18,6 +19,7 @@ export default function App() {
   return (
     <ToastProvider>
       <ArchiveOperationsProvider>
+      <ActiveRunsProvider>
       <NotificationsProvider>
       <div className="app-shell">
         <header className="app-header">
@@ -66,6 +68,7 @@ export default function App() {
         </div>
       </div>
       </NotificationsProvider>
+      </ActiveRunsProvider>
       </ArchiveOperationsProvider>
     </ToastProvider>
   )

@@ -28,6 +28,7 @@ from app.schemas import (
     TestRunDeleteByDateRequest,
     TestRunDeleteRequest,
     TestRunLogsOut,
+    TestRunActivityOut,
     TestRunOut,
     TestRunQueueOut,
     TestRunSchedule,
@@ -233,6 +234,26 @@ def get_run_queue(db: Session = Depends(get_db)):
             for index, run in enumerate(pending)
         ],
         scheduled=_list_scheduled_items(db),
+    )
+
+
+@router.get("/activity", response_model=TestRunActivityOut)
+def get_run_activity(db: Session = Depends(get_db)):
+    """Cheap running/pending counts for adaptive frontend polling (no enrichment)."""
+    running = (
+        db.query(TestRun)
+        .filter(TestRun.status == TestRunStatus.RUNNING, TestRun.is_archived.is_(False))
+        .count()
+    )
+    pending = (
+        db.query(TestRun)
+        .filter(TestRun.status == TestRunStatus.PENDING, TestRun.is_archived.is_(False))
+        .count()
+    )
+    return TestRunActivityOut(
+        running=running,
+        pending=pending,
+        has_active=running > 0 or pending > 0,
     )
 
 
