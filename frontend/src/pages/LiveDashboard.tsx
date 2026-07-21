@@ -26,7 +26,7 @@ import {
   type AggregateSummaryConfig,
 } from '../utils/aggregateSummaryAvgs'
 import { downloadAggregateReportCsv } from '../utils/exportAggregateCsv'
-import { downloadAggregateRepoReport } from '../utils/exportAggregateRepoReport'
+import { downloadAggregateRepoReport, prefetchExcelJS } from '../utils/exportAggregateRepoReport'
 import type { AggregateKindFilter, AggregateOutcomeFilter } from '../types'
 
 const DEFAULT_REFRESH_SECONDS = 10
@@ -135,6 +135,24 @@ export default function LiveDashboard() {
   }, [loadDashboardConfig])
 
   useEffect(() => {
+    // Preload ExcelJS while the dashboard is open so Export Report is not blocked
+    // by downloading/parsing the large library on first click.
+    const warm = () => prefetchExcelJS()
+    const ric = (window as Window & {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number
+      cancelIdleCallback?: (id: number) => void
+    }).requestIdleCallback
+    if (ric) {
+      const idleId = ric(warm, { timeout: 2500 })
+      return () => {
+        ;(window as Window & { cancelIdleCallback?: (id: number) => void }).cancelIdleCallback?.(idleId)
+      }
+    }
+    const t = window.setTimeout(warm, 1200)
+    return () => window.clearTimeout(t)
+  }, [])
+
+  useEffect(() => {
     api.getTestRun(id).then(setRun).catch(console.error)
   }, [id])
 
@@ -149,7 +167,8 @@ export default function LiveDashboard() {
     setGraphMode('cumulative')
     setErrorsGraphMode('all')
     setErrorFilter('')
-    setKindFilter('all')
+    setKindFilter('transaction')
+    setOutcomeFilter('pass')
     setSortField('label')
     setSortDir('asc')
     setRefreshGeneration(0)
@@ -545,6 +564,7 @@ export default function LiveDashboard() {
   }, [sortedTransactions, transactionTotals, id, kindFilter, outcomeFilter, labelFilter, toast])
 
   const handleExportAggregateRepo = useCallback(async () => {
+    toast.info('Preparing Excel report…')
     try {
       const allRows = metrics?.transactions ?? []
       const ok = await downloadAggregateRepoReport({

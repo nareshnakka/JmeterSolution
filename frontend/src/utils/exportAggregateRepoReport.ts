@@ -25,6 +25,11 @@ const THIN_BORDER: Partial<ExcelJS.Borders> = {
   right: { style: 'thin', color: { argb: 'FF000000' } },
 }
 
+const FONT = { name: 'Calibri', size: 11 } as const
+const FONT_BOLD = { name: 'Calibri', size: 11, bold: true } as const
+
+let excelJsLoad: Promise<typeof ExcelJS> | null = null
+
 function formatReportDate(iso?: string | null): string {
   if (!iso) return ''
   const d = new Date(iso)
@@ -88,38 +93,56 @@ function scenarioValueLines(run: TestRun | null, extra?: string[]): string[] {
   return lines
 }
 
+async function loadExcelJS(): Promise<typeof ExcelJS> {
+  if (excelJsLoad) return excelJsLoad
+
+  excelJsLoad = (async () => {
+    // ExcelJS writeBuffer expects Node Buffer in some browser builds.
+    if (!(globalThis as { Buffer?: unknown }).Buffer) {
+      const { Buffer } = await import('buffer')
+      ;(globalThis as { Buffer: typeof Buffer }).Buffer = Buffer
+      if (typeof window !== 'undefined') {
+        ;(window as unknown as { Buffer: typeof Buffer }).Buffer = Buffer
+      }
+    }
+
+    const mod = await import('exceljs')
+    const candidate = (mod as { default?: typeof ExcelJS }).default ?? (mod as typeof ExcelJS)
+    if (candidate && typeof candidate.Workbook === 'function') {
+      return candidate
+    }
+    const nested = (candidate as { default?: typeof ExcelJS } | undefined)?.default
+    if (nested && typeof nested.Workbook === 'function') {
+      return nested
+    }
+    throw new Error('ExcelJS Workbook is unavailable in this browser build')
+  })()
+
+  try {
+    return await excelJsLoad
+  } catch (err) {
+    excelJsLoad = null
+    throw err
+  }
+}
+
+/** Warm the ExcelJS chunk so the first Export Report click is much faster. */
+export function prefetchExcelJS(): void {
+  void loadExcelJS().catch(() => {
+    /* ignore — export will retry */
+  })
+}
+
 function styleMetaLabel(cell: ExcelJS.Cell): void {
-  cell.font = { name: 'Calibri', size: 11, bold: true }
+  cell.font = FONT_BOLD
   cell.alignment = { vertical: 'middle', horizontal: 'left' }
   cell.border = THIN_BORDER
 }
 
 function styleMetaValue(cell: ExcelJS.Cell, opts?: { bold?: boolean }): void {
-  cell.font = { name: 'Calibri', size: 11, bold: opts?.bold ?? false }
+  cell.font = opts?.bold ? FONT_BOLD : FONT
   cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
   cell.border = THIN_BORDER
-}
-
-async function loadExcelJS(): Promise<typeof ExcelJS> {
-  // ExcelJS writeBuffer expects Node Buffer in some browser builds.
-  if (!(globalThis as { Buffer?: unknown }).Buffer) {
-    const { Buffer } = await import('buffer')
-    ;(globalThis as { Buffer: typeof Buffer }).Buffer = Buffer
-    if (typeof window !== 'undefined') {
-      ;(window as unknown as { Buffer: typeof Buffer }).Buffer = Buffer
-    }
-  }
-
-  const mod = await import('exceljs')
-  const candidate = (mod as { default?: typeof ExcelJS }).default ?? (mod as typeof ExcelJS)
-  if (candidate && typeof candidate.Workbook === 'function') {
-    return candidate
-  }
-  const nested = (candidate as { default?: typeof ExcelJS } | undefined)?.default
-  if (nested && typeof nested.Workbook === 'function') {
-    return nested
-  }
-  throw new Error('ExcelJS Workbook is unavailable in this browser build')
 }
 
 /** Label in A; merge B:C for value; center-align the value. */
@@ -225,53 +248,41 @@ export async function buildAggregateRepoWorkbook(
 
   row++ // blank separator
 
-  const headerRow = row
-  const labelHeader = sheet.getCell(headerRow, COL_LABEL)
-  labelHeader.value = 'Label'
-  labelHeader.font = { name: 'Calibri', size: 11, bold: true }
-  labelHeader.alignment = { vertical: 'middle', horizontal: 'left' }
-  labelHeader.border = THIN_BORDER
-
-  const samplesHeader = sheet.getCell(headerRow, COL_SAMPLES)
-  samplesHeader.value = 'Samples'
-  samplesHeader.font = { name: 'Calibri', size: 11, bold: true }
-  samplesHeader.alignment = { vertical: 'middle', horizontal: 'center' }
-  samplesHeader.border = THIN_BORDER
-
-  const responseHeader = sheet.getCell(headerRow, COL_RESPONSE)
-  responseHeader.value = 'Response Time'
-  responseHeader.font = { name: 'Calibri', size: 11, bold: true }
-  responseHeader.alignment = { vertical: 'middle', horizontal: 'center' }
-  responseHeader.border = THIN_BORDER
-
+  const headerRow = sheet.getRow(row)
+  headerRow.getCell(COL_LABEL).value = 'Label'
+  headerRow.getCell(COL_SAMPLES).value = 'Samples'
+  headerRow.getCell(COL_RESPONSE).value = 'Response Time'
+  headerRow.font = FONT_BOLD
+  for (let c = COL_LABEL; c <= COL_RESPONSE; c++) {
+    const cell = headerRow.getCell(c)
+    cell.border = THIN_BORDER
+    cell.alignment = {
+      vertical: 'middle',
+      horizontal: c === COL_LABEL ? 'left' : 'center',
+    }
+  }
+  headerRow.commit()
   row++
   const dataStart = row
 
-  for (const tx of exportRows) {
-    const labelCell = sheet.getCell(row, COL_LABEL)
-    labelCell.value = tx.label
-    labelCell.font = { name: 'Calibri', size: 11 }
-    labelCell.alignment = { vertical: 'middle', horizontal: 'left' }
-    labelCell.border = THIN_BORDER
+  // Bulk row insert is much faster than styling getCell() three times per label.
+  if (exportRows.length > 0) {
+    sheet.getColumn(COL_LABEL).alignment = { vertical: 'middle', horizontal: 'left' }
+    sheet.getColumn(COL_SAMPLES).alignment = { vertical: 'middle', horizontal: 'center' }
+    sheet.getColumn(COL_RESPONSE).alignment = { vertical: 'middle', horizontal: 'center' }
 
-    const samplesCell = sheet.getCell(row, COL_SAMPLES)
-    samplesCell.value = tx.samples
-    samplesCell.font = { name: 'Calibri', size: 11 }
-    samplesCell.alignment = { vertical: 'middle', horizontal: 'center' }
-    samplesCell.border = THIN_BORDER
+    sheet.addRows(exportRows.map((tx) => [tx.label, tx.samples, Math.round(tx.avg_ms)]))
+    const dataEnd = dataStart + exportRows.length - 1
 
-    // Plain number cell — blue data bar comes from conditional formatting below
-    const responseCell = sheet.getCell(row, COL_RESPONSE)
-    responseCell.value = Math.round(tx.avg_ms)
-    responseCell.font = { name: 'Calibri', size: 11 }
-    responseCell.alignment = { vertical: 'middle', horizontal: 'center' }
-    responseCell.border = THIN_BORDER
+    // Light borders only (no per-cell fonts) — biggest ExcelJS cost was style spam.
+    for (let r = dataStart; r <= dataEnd; r++) {
+      const dataRow = sheet.getRow(r)
+      dataRow.getCell(COL_LABEL).border = THIN_BORDER
+      dataRow.getCell(COL_SAMPLES).border = THIN_BORDER
+      dataRow.getCell(COL_RESPONSE).border = THIN_BORDER
+      dataRow.commit()
+    }
 
-    row++
-  }
-
-  const dataEnd = row - 1
-  if (dataEnd >= dataStart) {
     const ref = `${sheet.getCell(dataStart, COL_RESPONSE).address}:${sheet.getCell(dataEnd, COL_RESPONSE).address}`
     try {
       sheet.addConditionalFormatting({
@@ -337,6 +348,11 @@ export async function downloadAggregateRepoReport(options: {
         ? transactionRows
         : transactions) ?? []
   if (exportRows.length === 0) return false
+
+  // Let the UI paint "Preparing…" before the heavy ExcelJS work.
+  await new Promise<void>((resolve) => {
+    window.setTimeout(resolve, 0)
+  })
 
   const workbook = await buildAggregateRepoWorkbook(transactions, meta, exportRows)
   const buffer = await workbook.xlsx.writeBuffer()
