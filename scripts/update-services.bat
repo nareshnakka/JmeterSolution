@@ -110,51 +110,15 @@ if not exist "%BACKEND%\jmeter_agent.db" (
 )
 
 echo.
-echo Updating Python dependencies (includes Azure Monitor: azure-identity)...
-if not exist "%BACKEND%\venv\Scripts\python.exe" (
-  echo Creating Python virtual environment...
-  pushd "%BACKEND%"
-  python -m venv venv
-  if errorlevel 1 (
-    echo ERROR: Failed to create venv.
-    popd
-    popd
-    exit /b 1
-  )
-  popd
-)
-
-pushd "%BACKEND%"
-call venv\Scripts\activate.bat
-python -m pip install --upgrade pip
+echo ========================================
+echo  Python dependencies - full install
+echo  requirements.txt + Azure Monitor
+echo ========================================
+call :InstallPythonDeps
 if errorlevel 1 (
-  echo WARNING: pip self-upgrade failed; continuing with existing pip.
-)
-python -m pip install --upgrade -r requirements.txt
-if errorlevel 1 (
-  echo ERROR: pip install failed.
-  popd
   popd
   exit /b 1
 )
-REM Explicit Azure Monitor dependency so updates never skip it if requirements drift.
-python -m pip install --upgrade "azure-identity>=1.19.0"
-if errorlevel 1 (
-  echo ERROR: Failed to install azure-identity - required for Azure CPU/Memory monitoring.
-  popd
-  popd
-  exit /b 1
-)
-REM Keep this line free of parentheses - CMD IF-block parsing breaks on ).
-python -c "import azure.identity"
-if errorlevel 1 (
-  echo ERROR: azure-identity import check failed after install.
-  popd
-  popd
-  exit /b 1
-)
-echo Azure identity package verified.
-popd
 
 if exist "%ROOT%\.env" (
   copy /Y "%ROOT%\.env" "%BACKEND%\.env" >nul 2>&1
@@ -163,22 +127,12 @@ if exist "%ROOT%\.env" (
 echo.
 echo Updating frontend dependencies and building ...
 pushd "%FRONTEND%"
-if not exist node_modules (
-  call npm install
-  if errorlevel 1 (
-    echo ERROR: npm install failed.
-    popd
-    popd
-    exit /b 1
-  )
-) else (
-  call npm install
-  if errorlevel 1 (
-    echo ERROR: npm install failed.
-    popd
-    popd
-    exit /b 1
-  )
+call npm install
+if errorlevel 1 (
+  echo ERROR: npm install failed.
+  popd
+  popd
+  exit /b 1
 )
 
 call npm run build
@@ -204,4 +158,58 @@ if "%RESTART%"=="1" (
 )
 
 popd
+exit /b 0
+
+rem ---------------------------------------------------------------------------
+rem Full backend dependency install used by this update script only.
+rem Uses venv python.exe directly - no activate.bat - and avoids parentheses
+rem inside IF echo lines - CMD breaks with: . was unexpected at this time.
+rem ---------------------------------------------------------------------------
+:InstallPythonDeps
+if not exist "%BACKEND%\venv\Scripts\python.exe" (
+  echo Creating Python virtual environment...
+  pushd "%BACKEND%"
+  python -m venv venv
+  if errorlevel 1 (
+    echo ERROR: Failed to create venv.
+    popd
+    exit /b 1
+  )
+  popd
+)
+
+set "VENV_PY=%BACKEND%\venv\Scripts\python.exe"
+if not exist "%VENV_PY%" (
+  echo ERROR: venv python not found at %VENV_PY%
+  exit /b 1
+)
+
+echo Upgrading pip...
+"%VENV_PY%" -m pip install --upgrade pip
+if errorlevel 1 (
+  echo WARNING: pip self-upgrade failed - continuing with existing pip.
+)
+
+echo Installing all packages from backend\requirements.txt ...
+"%VENV_PY%" -m pip install --upgrade -r "%BACKEND%\requirements.txt"
+if errorlevel 1 (
+  echo ERROR: pip install -r requirements.txt failed.
+  exit /b 1
+)
+
+echo Installing Azure Monitor packages...
+"%VENV_PY%" -m pip install --upgrade "azure-identity>=1.19.0" "azure-core>=1.30.0"
+if errorlevel 1 (
+  echo ERROR: Failed to install Azure Monitor packages.
+  exit /b 1
+)
+
+echo Verifying critical imports...
+"%VENV_PY%" -c "import fastapi, uvicorn, sqlalchemy, psutil, azure.identity, azure.core"
+if errorlevel 1 (
+  echo ERROR: Dependency import check failed after install.
+  exit /b 1
+)
+
+echo Python dependencies OK - including Azure Monitor.
 exit /b 0
