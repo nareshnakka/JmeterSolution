@@ -23,7 +23,8 @@ if not exist "%BACKEND%\venv\Scripts\python.exe" (
     exit /b 1
   )
   call venv\Scripts\activate.bat
-  pip install -r requirements.txt
+  python -m pip install --upgrade -r requirements.txt
+  python -m pip install --upgrade "azure-identity>=1.19.0"
   popd
 )
 

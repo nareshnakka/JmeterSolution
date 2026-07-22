@@ -20,7 +20,8 @@ cd /d %ROOT%\backend
 if not exist venv (
   python -m venv venv
   call venv\Scripts\activate.bat
-  pip install -r requirements.txt
+  python -m pip install --upgrade -r requirements.txt
+  python -m pip install --upgrade "azure-identity>=1.19.0"
 ) else (
   call venv\Scripts\activate.bat
 )

@@ -96,9 +96,15 @@ if not exist "%BACKEND%\venv\Scripts\python.exe" (
 pushd "%BACKEND%"
 call venv\Scripts\activate.bat
 python -m pip install --upgrade pip
-pip install -r requirements.txt
+python -m pip install --upgrade -r requirements.txt
 if errorlevel 1 (
   echo ERROR: pip install failed.
+  popd
+  exit /b 1
+)
+python -m pip install --upgrade "azure-identity>=1.19.0"
+if errorlevel 1 (
+  echo ERROR: Failed to install azure-identity.
   popd
   exit /b 1
 )

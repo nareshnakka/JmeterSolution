@@ -110,7 +110,7 @@ if not exist "%BACKEND%\jmeter_agent.db" (
 )
 
 echo.
-echo Updating Python dependencies ...
+echo Updating Python dependencies (includes Azure Monitor: azure-identity)...
 if not exist "%BACKEND%\venv\Scripts\python.exe" (
   echo Creating Python virtual environment...
   pushd "%BACKEND%"
@@ -126,9 +126,28 @@ if not exist "%BACKEND%\venv\Scripts\python.exe" (
 
 pushd "%BACKEND%"
 call venv\Scripts\activate.bat
-pip install -r requirements.txt
+python -m pip install --upgrade pip
+if errorlevel 1 (
+  echo WARNING: pip self-upgrade failed; continuing with existing pip.
+)
+python -m pip install --upgrade -r requirements.txt
 if errorlevel 1 (
   echo ERROR: pip install failed.
+  popd
+  popd
+  exit /b 1
+)
+REM Explicit Azure Monitor dependency so updates never skip it if requirements drift.
+python -m pip install --upgrade "azure-identity>=1.19.0"
+if errorlevel 1 (
+  echo ERROR: Failed to install azure-identity (required for Azure CPU/Memory monitoring).
+  popd
+  popd
+  exit /b 1
+)
+python -c "import azure.identity; print('Azure identity OK:', getattr(azure.identity, '__version__', 'installed'))"
+if errorlevel 1 (
+  echo ERROR: azure-identity import check failed after install.
   popd
   popd
   exit /b 1
