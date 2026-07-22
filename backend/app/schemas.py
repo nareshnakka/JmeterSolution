@@ -442,6 +442,15 @@ class TestRunLogsOut(BaseModel):
     complete: bool
 
 
+class TestRunReportOut(BaseModel):
+    """One-shot finished-report payload (single connection; same data as separate calls)."""
+
+    metrics: LiveMetricsSnapshot
+    errors: list[ErrorSample] = Field(default_factory=list)
+    response_time_graph: dict[str, Any] = Field(default_factory=dict)
+    errors_graph: dict[str, Any] = Field(default_factory=dict)
+
+
 class SystemConfigOut(BaseModel):
     jmeter_home: str
     data_root: str

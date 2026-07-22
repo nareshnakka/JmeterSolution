@@ -31,6 +31,7 @@ from app.schemas import (
     TestRunActivityOut,
     TestRunOut,
     TestRunQueueOut,
+    TestRunReportOut,
     TestRunSchedule,
     QueuedRunItem,
     TransactionMetric,
@@ -38,6 +39,7 @@ from app.schemas import (
 )
 from app.services.jmeter_runner import run_manager
 from app.services.host_resources import load_host_resources
+from app.services.jtl_agg_cache import jtl_agg_cache
 from app.services.system_config import get_system_config
 from app.services.jtl_parser import (
     find_matching_trace_sample,
@@ -61,9 +63,6 @@ from app.services.run_queue import process_run_queue, try_start_or_queue
 from app.utils.datetime_utils import utc_now
 
 router = APIRouter(prefix="/api/test-runs", tags=["test-runs"])
-
-# Cache parsed JTL aggregators for completed runs (keyed by file mtime + size).
-_jtl_agg_cache: dict[int, tuple[int, int, object]] = {}
 
 TERMINAL_RUN_STATUSES = frozenset(
     {TestRunStatus.COMPLETED, TestRunStatus.FAILED, TestRunStatus.CANCELLED}
@@ -480,7 +479,11 @@ def _metrics_snapshot_for_run(run: TestRun) -> dict:
 
 
 def _aggregator_for_run(run: TestRun):
-    """Resolve the best metrics aggregator for a test run."""
+    """Resolve the best metrics aggregator for a test run.
+
+    Completed runs use a process-wide single-flight LRU cache so parallel report
+    tabs share one JTL parse instead of stampeding the CPU.
+    """
     agg = run_manager.get_aggregator(run.id)
     jtl = resolve_jtl_path(run)
 
@@ -494,16 +497,15 @@ def _aggregator_for_run(run: TestRun):
         return agg
 
     if jtl:
-        stat = Path(jtl).stat()
-        cache_key = (stat.st_mtime_ns, stat.st_size)
-        cached = _jtl_agg_cache.get(run.id)
-        if cached and cached[0:2] == cache_key:
-            return cached[2]
-        file_agg = parse_jtl_file(jtl)
-        file_agg.test_run_id = run.id
-        _jtl_agg_cache[run.id] = (cache_key[0], cache_key[1], file_agg)
+        def _load():
+            file_agg = parse_jtl_file(jtl)
+            file_agg.test_run_id = run.id
+            return file_agg
+
+        file_agg = jtl_agg_cache.get_or_load(run.id, jtl, _load)
         if agg is None or len(file_agg.samples) >= len(agg.samples):
             return file_agg
+        return agg
     return agg
 
 
@@ -529,6 +531,39 @@ def get_run_metrics(run_id: int, db: Session = Depends(get_db)):
     if not run:
         raise HTTPException(404, "Test run not found")
     return _metrics_snapshot_for_run(run)
+
+
+@router.get("/{run_id}/report", response_model=TestRunReportOut)
+def get_run_report(
+    run_id: int,
+    error_limit: int = Query(default=200, ge=1, le=500),
+    db: Session = Depends(get_db),
+):
+    """Full report in one response — preferred for finished runs / parallel tabs.
+
+    Builds metrics, errors, and default graphs from a single aggregator load so
+    browsers do not open multiple long-lived connections that time out.
+    """
+    run = db.get(TestRun, run_id)
+    if not run:
+        raise HTTPException(404, "Test run not found")
+    agg = _aggregator_for_run(run)
+    if agg is None:
+        raise HTTPException(404, "No metrics available yet")
+
+    if run.status in TERMINAL_RUN_STATUSES:
+        agg.status = run.status
+    elif run.status == TestRunStatus.RUNNING:
+        agg.status = TestRunStatus.RUNNING
+
+    metrics = agg.snapshot()
+    errors = agg.search_errors(None, error_limit)
+    return TestRunReportOut(
+        metrics=metrics,
+        errors=errors,
+        response_time_graph=agg.label_graph(labels=["ALL"], cumulative=True),
+        errors_graph=agg.error_graph(labels=["ALL"], cumulative=False),
+    )
 
 
 @router.get("/{run_id}/aggregate-total", response_model=TransactionMetric)
@@ -730,12 +765,9 @@ def compare_runs(body: CompareRequest, db: Session = Depends(get_db)):
             continue
         enriched = _enrich_run(run, db)
         transactions: list[TransactionMetric] = []
-        jtl = resolve_jtl_path(run)
-        if jtl:
-            agg = parse_jtl_file(jtl)
+        agg = _aggregator_for_run(run)
+        if agg is not None:
             transactions = agg.transaction_metrics()
-        elif run_manager.get_aggregator(run_id):
-            transactions = run_manager.get_aggregator(run_id).transaction_metrics()
 
         summaries.append(
             CompareRunSummary(

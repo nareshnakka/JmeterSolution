@@ -66,7 +66,7 @@ if /I "%MODE%"=="dev" (
 
 echo Starting JMeter Agent backend on http://localhost:%PORT% ...
 set "QE_SCRIPT=%ROOT%\scripts\disable-console-quickedit.ps1"
-start "JMeter Agent Backend" /D "%BACKEND%" cmd /k "call venv\Scripts\activate.bat && powershell -NoProfile -ExecutionPolicy Bypass -File "!QE_SCRIPT!" >nul 2>&1 && echo Tip: Do not click inside this console while the server runs. && uvicorn app.main:app --host %HOST% --port %PORT%"
+start "JMeter Agent Backend" /D "%BACKEND%" cmd /k "call venv\Scripts\activate.bat && powershell -NoProfile -ExecutionPolicy Bypass -File "!QE_SCRIPT!" >nul 2>&1 && echo Tip: Do not click inside this console while the server runs. && uvicorn app.main:app --host %HOST% --port %PORT% --timeout-keep-alive 75"
 
 if /I "%MODE%"=="dev" (
   echo Starting frontend dev server on http://localhost:5173 ...

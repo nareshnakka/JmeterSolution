@@ -13,7 +13,7 @@ if (-not (Test-Path $VenvPython)) {
 }
 
 $ServiceName = "JMeterAgent"
-$AppParams = "-m uvicorn app.main:app --host 0.0.0.0 --port 8080"
+$AppParams = "-m uvicorn app.main:app --host 0.0.0.0 --port 8080 --timeout-keep-alive 75"
 
 nssm install $ServiceName $VenvPython $AppParams
 nssm set $ServiceName AppDirectory $Backend

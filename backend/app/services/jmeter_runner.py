@@ -382,6 +382,11 @@ class RunManager:
                 agg.status = TestRunStatus.FAILED
             db.commit()
 
+            # Keep finished-run metrics warm for fast multi-tab report opens (no re-parse).
+            from app.services.jtl_agg_cache import jtl_agg_cache
+
+            jtl_agg_cache.put(run_id, jtl_path if jtl_path.exists() else None, agg)
+
             scenario = db.get(Scenario, run.scenario_id)
             from app.services.app_notifications import notify_test_run_finished
 

@@ -34,4 +34,4 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%\scripts\disable-cons
 
 echo Starting JMeter Agent Server on http://localhost:8080
 echo Tip: Do not click inside this window while the server runs — use the browser UI instead.
-uvicorn app.main:app --host 0.0.0.0 --port 8080
+uvicorn app.main:app --host 0.0.0.0 --port 8080 --timeout-keep-alive 75

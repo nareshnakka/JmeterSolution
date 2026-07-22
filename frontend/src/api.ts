@@ -1,26 +1,49 @@
 const BASE = '/api'
+/** Large finished JTLs can take minutes to parse once; aborting early causes "connection timeout". */
+const REQUEST_TIMEOUT_MS = 180_000
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, init)
-  const text = await res.text()
-
-  if (!res.ok) {
-    try {
-      const json = JSON.parse(text) as { detail?: string | { msg: string }[] }
-      if (typeof json.detail === 'string') throw new Error(json.detail)
-      if (Array.isArray(json.detail)) throw new Error(json.detail.map((d) => d.msg).join(', '))
-    } catch (e) {
-      if (e instanceof Error && !(e instanceof SyntaxError)) throw e
-    }
-    throw new Error(text.trim() || res.statusText)
+  const controller = new AbortController()
+  const outerSignal = init?.signal
+  const onOuterAbort = () => controller.abort()
+  if (outerSignal) {
+    if (outerSignal.aborted) controller.abort()
+    else outerSignal.addEventListener('abort', onOuterAbort, { once: true })
   }
-
-  if (res.status === 204 || !text) return undefined as T
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
 
   try {
-    return JSON.parse(text) as T
-  } catch {
-    throw new Error('Invalid response from server')
+    const res = await fetch(`${BASE}${path}`, { ...init, signal: controller.signal })
+    const text = await res.text()
+
+    if (!res.ok) {
+      try {
+        const json = JSON.parse(text) as { detail?: string | { msg: string }[] }
+        if (typeof json.detail === 'string') throw new Error(json.detail)
+        if (Array.isArray(json.detail)) throw new Error(json.detail.map((d) => d.msg).join(', '))
+      } catch (e) {
+        if (e instanceof Error && !(e instanceof SyntaxError)) throw e
+      }
+      throw new Error(text.trim() || res.statusText)
+    }
+
+    if (res.status === 204 || !text) return undefined as T
+
+    try {
+      return JSON.parse(text) as T
+    } catch {
+      throw new Error('Invalid response from server')
+    }
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') {
+      throw new Error(
+        'Request timed out while building the report. The server may still be busy — wait a moment and retry.'
+      )
+    }
+    throw e
+  } finally {
+    clearTimeout(timer)
+    outerSignal?.removeEventListener('abort', onOuterAbort)
   }
 }
 
@@ -175,6 +198,9 @@ export const api = {
       body: JSON.stringify({ scenario_id: scenarioId, scheduled_at: scheduledAt, notes }),
     }),
   getMetrics: (runId: number) => request<import('./types').LiveMetrics>(`/test-runs/${runId}/metrics`),
+  /** Single-connection finished report (metrics + errors + default graphs). */
+  getTestRunReport: (runId: number) =>
+    request<import('./types').TestRunReport>(`/test-runs/${runId}/report`),
   getAggregateTotal: (runId: number, kind: string = 'all', label?: string) => {
     const params = new URLSearchParams({ kind })
     if (label?.trim()) params.set('label', label.trim())

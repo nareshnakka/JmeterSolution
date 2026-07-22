@@ -272,6 +272,14 @@ export interface LiveMetrics {
   throughput_series: { t: number; hits_per_sec: number }[]
 }
 
+/** One-shot report payload for finished runs (avoids multi-connection timeouts). */
+export interface TestRunReport {
+  metrics: LiveMetrics
+  errors: ErrorSample[]
+  response_time_graph: { mode?: string; series: { label: string; points: { t: number; avg_ms: number }[] }[] }
+  errors_graph: { mode?: string; series: { label: string; points: { t: number; errors: number }[] }[] }
+}
+
 export interface TestRunLogs {
   content: string
   offset: number

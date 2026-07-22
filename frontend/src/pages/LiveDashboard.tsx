@@ -157,7 +157,17 @@ export default function LiveDashboard() {
   }, [])
 
   useEffect(() => {
-    api.getTestRun(id).then(setRun).catch(console.error)
+    let cancelled = false
+    setRun(null)
+    api
+      .getTestRun(id)
+      .then((data) => {
+        if (!cancelled) setRun(data)
+      })
+      .catch(console.error)
+    return () => {
+      cancelled = true
+    }
   }, [id])
 
   useEffect(() => {
@@ -391,6 +401,9 @@ export default function LiveDashboard() {
   const runIsTerminal = isTerminalStatus(liveStatus)
 
   useEffect(() => {
+    // Wait for run metadata so finished reports never start a live poll/WS stampede.
+    if (!run) return
+
     let cancelled = false
     const terminal = runIsTerminal
 
@@ -406,10 +419,34 @@ export default function LiveDashboard() {
       })
     }
 
-    // Completed/failed/cancelled: one metrics/errors load only.
-    // Graphs load via delayed effects below so the server is not flooded.
+    // Finished reports: one HTTP connection for metrics + errors + default graphs.
     if (terminal) {
-      void tick(true, { includeGraphs: false })
+      void (async () => {
+        setErrorsLoading(true)
+        try {
+          const report = await api.getTestRunReport(id)
+          if (cancelled) return
+          applyMetrics(report.metrics)
+          if (isTerminalStatus(report.metrics.status)) {
+            handleTerminalStatus(report.metrics.status)
+          }
+          setDisplayedErrors(report.errors ?? report.metrics.errors ?? [])
+          setGraphData(report.response_time_graph?.series ?? [])
+          setErrorsGraphData(report.errors_graph?.series ?? [])
+          setGraphMode('cumulative')
+          setErrorsGraphMode('all')
+          setMetricsFetched(true)
+          setRefreshGeneration((g) => g + 1)
+        } catch (e) {
+          console.error(e)
+          // Fallback: still try metrics-only so the page is not empty.
+          if (!cancelled) {
+            await tick(true, { includeGraphs: false })
+          }
+        } finally {
+          if (!cancelled) setErrorsLoading(false)
+        }
+      })()
       return () => {
         cancelled = true
       }
@@ -423,15 +460,20 @@ export default function LiveDashboard() {
       clearInterval(interval)
     }
   }, [
+    id,
     pollIntervalMs,
     refreshDashboard,
     liveStatus,
     runIsTerminal,
+    run,
+    applyMetrics,
+    handleTerminalStatus,
+    isTerminalStatus,
   ])
 
   useEffect(() => {
     // Finished reports do not need a live WebSocket.
-    if (runIsTerminal) return
+    if (!run || runIsTerminal) return
 
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
     const ws = new WebSocket(`${proto}://${window.location.host}/ws/test-runs/${id}`)
@@ -468,9 +510,18 @@ export default function LiveDashboard() {
     }
 
     return () => ws.close()
-  }, [id, runIsTerminal, applyMetrics, refreshDashboard, handleTerminalStatus, isTerminalStatus])
+  }, [id, run, runIsTerminal, applyMetrics, refreshDashboard, handleTerminalStatus, isTerminalStatus])
 
   useEffect(() => {
+    if (!run) return
+
+    // Terminal default charts arrive in the report bundle — only refetch when the user
+    // changes mode/labels (avoids extra connections that time out under parallel tabs).
+    if (runIsTerminal) {
+      const customSelection = graphMode !== 'cumulative' || selectedLabels.size > 0
+      if (!customSelection) return
+    }
+
     let cancelled = false
     const kick = () => {
       if (cancelled) return
@@ -482,21 +533,20 @@ export default function LiveDashboard() {
         setGraphData([])
       }
     }
-    // Stagger heavy graph parse after metrics when viewing a finished report.
-    if (runIsTerminal) {
-      const timer = window.setTimeout(kick, 450)
-      return () => {
-        cancelled = true
-        window.clearTimeout(timer)
-      }
-    }
     kick()
     return () => {
       cancelled = true
     }
-  }, [graphMode, selectedLabelsKey, loadGraph, selectedLabels, runIsTerminal])
+  }, [graphMode, selectedLabelsKey, loadGraph, selectedLabels, runIsTerminal, run])
 
   useEffect(() => {
+    if (!run) return
+
+    if (runIsTerminal) {
+      const customSelection = errorsGraphMode !== 'all' || selectedLabels.size > 0
+      if (!customSelection) return
+    }
+
     let cancelled = false
     const kick = () => {
       if (cancelled) return
@@ -508,18 +558,11 @@ export default function LiveDashboard() {
         setErrorsGraphData([])
       }
     }
-    if (runIsTerminal) {
-      const timer = window.setTimeout(kick, 700)
-      return () => {
-        cancelled = true
-        window.clearTimeout(timer)
-      }
-    }
     kick()
     return () => {
       cancelled = true
     }
-  }, [errorsGraphMode, selectedLabelsKey, loadErrorsGraph, selectedLabels, runIsTerminal])
+  }, [errorsGraphMode, selectedLabelsKey, loadErrorsGraph, selectedLabels, runIsTerminal, run])
 
   useEffect(() => {
     if (skipSearchRefreshRef.current) {
@@ -545,7 +588,8 @@ export default function LiveDashboard() {
     }
     // Outcome filters are applied on aggregated label rows; recompute TOTAL from the
     // visible set so Pass/Fail does not pull in excluded labels via the API.
-    if (outcomeFilter !== 'all') {
+    // Finished reports also compute locally to avoid an extra connection after the bundle.
+    if (outcomeFilter !== 'all' || runIsTerminal) {
       setTransactionTotals(
         computeTransactionTotals(filteredTransactions, metrics.elapsed_seconds)
       )
@@ -576,6 +620,7 @@ export default function LiveDashboard() {
     outcomeFilter,
     labelFilter,
     filteredTransactions,
+    runIsTerminal,
   ])
 
   const sortedTransactions = useMemo(
@@ -1238,19 +1283,24 @@ export default function LiveDashboard() {
         />
       )}
 
-      <JmeterLogConsole
-        runId={id}
-        isRunning={!isTerminalStatus(liveStatus) && liveStatus === 'running'}
-        refreshIntervalMs={refreshPollMs}
-        refreshGeneration={refreshGeneration}
-      />
+      {/* Defer secondary fetches until the report body is ready — frees browser connections. */}
+      {(!runIsTerminal || metricsFetched) && (
+        <>
+          <JmeterLogConsole
+            runId={id}
+            isRunning={!isTerminalStatus(liveStatus) && liveStatus === 'running'}
+            refreshIntervalMs={refreshPollMs}
+            refreshGeneration={refreshGeneration}
+          />
 
-      <HostResourceChart
-        runId={id}
-        isRunning={!isTerminalStatus(liveStatus) && liveStatus === 'running'}
-        refreshIntervalMs={refreshPollMs}
-        refreshGeneration={refreshGeneration}
-      />
+          <HostResourceChart
+            runId={id}
+            isRunning={!isTerminalStatus(liveStatus) && liveStatus === 'running'}
+            refreshIntervalMs={refreshPollMs}
+            refreshGeneration={refreshGeneration}
+          />
+        </>
+      )}
 
       {run?.run_dir && (
         <DashboardSection title="Artifacts" defaultExpanded={false}>
