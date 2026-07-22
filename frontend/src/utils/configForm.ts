@@ -1,4 +1,4 @@
-import type { SystemConfig } from '../types'
+import type { AzureMonitorTarget, SystemConfig } from '../types'
 
 export interface ConfigFormState {
   jmeter_home: string
@@ -14,7 +14,15 @@ export interface ConfigFormState {
   aggregate_load_avg_filter: string
   aggregate_submit_avg_title: string
   aggregate_submit_avg_filter: string
+  azure_monitor_enabled: boolean
+  azure_monitor_targets: AzureMonitorTarget[]
 }
+
+export const DEFAULT_AZURE_TARGETS: AzureMonitorTarget[] = [
+  { name: 'PQSQCSQL2016N01', resource_id: '' },
+  { name: 'PQSQCVAL2022N01', resource_id: '' },
+  { name: 'PQSQCVAL2016N03', resource_id: '' },
+]
 
 export const DEFAULT_CONFIG_FORM: ConfigFormState = {
   jmeter_home: '',
@@ -30,6 +38,8 @@ export const DEFAULT_CONFIG_FORM: ConfigFormState = {
   aggregate_load_avg_filter: '_L_',
   aggregate_submit_avg_title: 'Submit Avg',
   aggregate_submit_avg_filter: '_S_',
+  azure_monitor_enabled: false,
+  azure_monitor_targets: DEFAULT_AZURE_TARGETS,
 }
 
 export function configFormFromSystem(data: SystemConfig): ConfigFormState {
@@ -47,6 +57,14 @@ export function configFormFromSystem(data: SystemConfig): ConfigFormState {
     aggregate_load_avg_filter: data.aggregate_load_avg_filter ?? '_L_',
     aggregate_submit_avg_title: data.aggregate_submit_avg_title ?? 'Submit Avg',
     aggregate_submit_avg_filter: data.aggregate_submit_avg_filter ?? '_S_',
+    azure_monitor_enabled: Boolean(data.azure_monitor_enabled),
+    azure_monitor_targets:
+      data.azure_monitor_targets && data.azure_monitor_targets.length > 0
+        ? data.azure_monitor_targets.map((t) => ({
+            name: t.name,
+            resource_id: t.resource_id ?? '',
+          }))
+        : DEFAULT_AZURE_TARGETS,
   }
 }
 

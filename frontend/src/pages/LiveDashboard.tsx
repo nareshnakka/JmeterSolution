@@ -5,6 +5,7 @@ import ErrorDetailModal from '../components/ErrorDetailModal'
 import DashboardSection from '../components/DashboardSection'
 import JmeterLogConsole from '../components/JmeterLogConsole'
 import HostResourceChart from '../components/HostResourceChart'
+import AzureResourceChart from '../components/AzureResourceChart'
 import {
   ActiveUsersChart,
   ErrorsOverTimeChart,
@@ -1294,6 +1295,13 @@ export default function LiveDashboard() {
           />
 
           <HostResourceChart
+            runId={id}
+            isRunning={!isTerminalStatus(liveStatus) && liveStatus === 'running'}
+            refreshIntervalMs={refreshPollMs}
+            refreshGeneration={refreshGeneration}
+          />
+
+          <AzureResourceChart
             runId={id}
             isRunning={!isTerminalStatus(liveStatus) && liveStatus === 'running'}
             refreshIntervalMs={refreshPollMs}

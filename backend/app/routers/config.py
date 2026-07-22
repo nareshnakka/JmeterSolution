@@ -19,8 +19,10 @@ from app.schemas import (
     TestRunDeleteFailure,
 )
 from app.services.archive import archive_test_run, auto_archive_old_runs, restore_test_run
+from app.services.azure_monitor import azure_credentials_configured
 from app.services.system_config import (
     get_system_config,
+    list_azure_targets_from_config,
     update_aggregate_summary_config,
     update_system_config,
 )
@@ -45,6 +47,9 @@ def _to_config_out(cfg) -> SystemConfigOut:
         aggregate_load_avg_filter=getattr(cfg, "aggregate_load_avg_filter", "_L_"),
         aggregate_submit_avg_title=getattr(cfg, "aggregate_submit_avg_title", "Submit Avg"),
         aggregate_submit_avg_filter=getattr(cfg, "aggregate_submit_avg_filter", "_S_"),
+        azure_monitor_enabled=bool(getattr(cfg, "azure_monitor_enabled", False)),
+        azure_monitor_targets=list_azure_targets_from_config(cfg),
+        azure_credentials_configured=azure_credentials_configured(),
         jmeter_found=(jmeter_path / "bin" / "jmeter.bat").is_file(),
         updated_at=cfg.updated_at,
     )
@@ -74,6 +79,8 @@ def save_config(body: SystemConfigUpdate, db: Session = Depends(get_db)):
             aggregate_load_avg_filter=body.aggregate_load_avg_filter,
             aggregate_submit_avg_title=body.aggregate_submit_avg_title,
             aggregate_submit_avg_filter=body.aggregate_submit_avg_filter,
+            azure_monitor_enabled=body.azure_monitor_enabled,
+            azure_monitor_targets=[t.model_dump() for t in body.azure_monitor_targets],
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc

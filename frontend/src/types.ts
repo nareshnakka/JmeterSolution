@@ -159,6 +159,28 @@ export interface HostResources {
   samples: HostResourceSample[]
 }
 
+export interface AzureMonitorTarget {
+  name: string
+  resource_id: string
+}
+
+export interface AzureVmSample {
+  cpu_percent?: number | null
+  memory_percent?: number | null
+}
+
+export interface AzureResourceSample {
+  t: number
+  recorded_at?: string
+  servers: Record<string, AzureVmSample>
+}
+
+export interface AzureResources {
+  interval_seconds: number
+  targets: AzureMonitorTarget[]
+  samples: AzureResourceSample[]
+}
+
 /** Runs that finished (or were stopped) with results available for comparison. */
 export function isComparableTestRun(status: string): boolean {
   return status === 'completed' || status === 'failed' || status === 'cancelled'
@@ -312,6 +334,9 @@ export interface SystemConfig {
   aggregate_load_avg_filter: string
   aggregate_submit_avg_title: string
   aggregate_submit_avg_filter: string
+  azure_monitor_enabled?: boolean
+  azure_monitor_targets?: AzureMonitorTarget[]
+  azure_credentials_configured?: boolean
   jmeter_found: boolean
   updated_at?: string
 }

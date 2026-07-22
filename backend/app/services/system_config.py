@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.models import SystemConfig
+from app.services.azure_monitor import parse_azure_targets
 
 DEFAULT_RESOURCE_SAMPLE_INTERVAL_SECONDS = 10
 MIN_RESOURCE_SAMPLE_INTERVAL_SECONDS = 5
@@ -16,6 +18,19 @@ MAX_RESOURCE_SAMPLE_INTERVAL_SECONDS = 300
 DEFAULT_LIVE_DASHBOARD_REFRESH_INTERVAL_SECONDS = 10
 MIN_LIVE_DASHBOARD_REFRESH_INTERVAL_SECONDS = 5
 MAX_LIVE_DASHBOARD_REFRESH_INTERVAL_SECONDS = 300
+
+DEFAULT_AZURE_MONITOR_TARGETS = [
+    {"name": "PQSQCSQL2016N01", "resource_id": ""},
+    {"name": "PQSQCVAL2022N01", "resource_id": ""},
+    {"name": "PQSQCVAL2016N03", "resource_id": ""},
+]
+DEFAULT_AZURE_MONITOR_TARGETS_JSON = json.dumps(DEFAULT_AZURE_MONITOR_TARGETS, indent=2)
+
+DEFAULT_AGGREGATE_TOTAL_AVG_TITLE = "Total Avg"
+DEFAULT_AGGREGATE_LOAD_AVG_TITLE = "Load Avg"
+DEFAULT_AGGREGATE_LOAD_AVG_FILTER = "_L_"
+DEFAULT_AGGREGATE_SUBMIT_AVG_TITLE = "Submit Avg"
+DEFAULT_AGGREGATE_SUBMIT_AVG_FILTER = "_S_"
 
 
 def normalize_resource_sample_interval(seconds: int) -> int:
@@ -35,13 +50,6 @@ def apply_runtime_paths(jmeter_home: str, data_root: str) -> None:
     settings.data_root.mkdir(parents=True, exist_ok=True)
 
 
-DEFAULT_AGGREGATE_TOTAL_AVG_TITLE = "Total Avg"
-DEFAULT_AGGREGATE_LOAD_AVG_TITLE = "Load Avg"
-DEFAULT_AGGREGATE_LOAD_AVG_FILTER = "_L_"
-DEFAULT_AGGREGATE_SUBMIT_AVG_TITLE = "Submit Avg"
-DEFAULT_AGGREGATE_SUBMIT_AVG_FILTER = "_S_"
-
-
 def normalize_aggregate_title(title: str, *, fallback: str) -> str:
     trimmed = title.strip()
     return trimmed if trimmed else fallback
@@ -53,6 +61,44 @@ def normalize_aggregate_filter(value: str) -> str:
 
 def normalize_aggregate_exclude_list(value: str) -> str:
     return value.strip()
+
+
+def normalize_azure_targets_for_storage(targets: list[dict[str, str]] | None) -> str:
+    cleaned: list[dict[str, str]] = []
+    for item in targets or []:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        resource_id = str(item.get("resource_id") or "").strip()
+        if name:
+            cleaned.append({"name": name, "resource_id": resource_id})
+    return json.dumps(cleaned, indent=2)
+
+
+def list_azure_targets_from_config(cfg: SystemConfig) -> list[dict[str, str]]:
+    raw = getattr(cfg, "azure_monitor_targets_json", None) or "[]"
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return list(DEFAULT_AZURE_MONITOR_TARGETS)
+    if not isinstance(data, list):
+        return list(DEFAULT_AZURE_MONITOR_TARGETS)
+    out: list[dict[str, str]] = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        resource_id = str(item.get("resource_id") or "").strip()
+        if name:
+            out.append({"name": name, "resource_id": resource_id})
+    return out or list(DEFAULT_AZURE_MONITOR_TARGETS)
+
+
+def get_enabled_azure_targets(cfg: SystemConfig) -> list[dict[str, str]]:
+    """Targets ready to sample (enabled + non-empty resource_id)."""
+    if not getattr(cfg, "azure_monitor_enabled", False):
+        return []
+    return [t for t in parse_azure_targets(getattr(cfg, "azure_monitor_targets_json", "[]")) if t.get("resource_id")]
 
 
 def get_system_config(db: Session) -> SystemConfig:
@@ -73,6 +119,8 @@ def get_system_config(db: Session) -> SystemConfig:
             aggregate_load_avg_filter=DEFAULT_AGGREGATE_LOAD_AVG_FILTER,
             aggregate_submit_avg_title=DEFAULT_AGGREGATE_SUBMIT_AVG_TITLE,
             aggregate_submit_avg_filter=DEFAULT_AGGREGATE_SUBMIT_AVG_FILTER,
+            azure_monitor_enabled=False,
+            azure_monitor_targets_json=DEFAULT_AZURE_MONITOR_TARGETS_JSON,
         )
         db.add(cfg)
         db.commit()
@@ -97,6 +145,8 @@ def update_system_config(
     aggregate_load_avg_filter: str,
     aggregate_submit_avg_title: str,
     aggregate_submit_avg_filter: str,
+    azure_monitor_enabled: bool = False,
+    azure_monitor_targets: list[dict[str, str]] | None = None,
 ) -> SystemConfig:
     cfg = get_system_config(db)
     jmeter_path = Path(jmeter_home)
@@ -138,6 +188,9 @@ def update_system_config(
         fallback=DEFAULT_AGGREGATE_SUBMIT_AVG_TITLE,
     )
     cfg.aggregate_submit_avg_filter = normalize_aggregate_filter(aggregate_submit_avg_filter)
+    cfg.azure_monitor_enabled = bool(azure_monitor_enabled)
+    if azure_monitor_targets is not None:
+        cfg.azure_monitor_targets_json = normalize_azure_targets_for_storage(azure_monitor_targets)
     db.commit()
     db.refresh(cfg)
     apply_runtime_paths(cfg.jmeter_home, cfg.data_root)

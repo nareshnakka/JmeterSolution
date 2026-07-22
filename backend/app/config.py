@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     github_token: str = ""
     github_repo: str = "nareshnakka/JmeterSolution"
 
+    # Azure Monitor (CPU/Memory for target VMs — stored with each test run).
+    azure_tenant_id: str = ""
+    azure_client_id: str = ""
+    azure_client_secret: str = ""
+    azure_subscription_id: str = ""
+
     @property
     def jmeter_bin(self) -> Path:
         return self.jmeter_home / "bin" / "jmeter.bat"

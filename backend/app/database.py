@@ -147,6 +147,26 @@ def _migrate_schema() -> None:
                     conn.execute(text(f"ALTER TABLE system_config ADD COLUMN {col_name} {col_def}"))
                     logger.info("Added system_config.%s", col_name)
 
+        cfg_cols = {c["name"] for c in inspect(engine).get_columns("system_config")}
+        if "azure_monitor_enabled" not in cfg_cols:
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "ALTER TABLE system_config "
+                        "ADD COLUMN azure_monitor_enabled BOOLEAN NOT NULL DEFAULT 0"
+                    )
+                )
+                logger.info("Added system_config.azure_monitor_enabled")
+        if "azure_monitor_targets_json" not in cfg_cols:
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "ALTER TABLE system_config "
+                        "ADD COLUMN azure_monitor_targets_json TEXT NOT NULL DEFAULT '[]'"
+                    )
+                )
+                logger.info("Added system_config.azure_monitor_targets_json")
+
     if "scenarios" in insp.get_table_names():
         scenario_cols = {c["name"] for c in insp.get_columns("scenarios")}
         if "jmeter_properties" not in scenario_cols:

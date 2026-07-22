@@ -210,6 +210,8 @@ export const api = {
   },
   getRunResources: (runId: number) =>
     request<import('./types').HostResources>(`/test-runs/${runId}/resources`),
+  getRunAzureResources: (runId: number) =>
+    request<import('./types').AzureResources>(`/test-runs/${runId}/azure-resources`),
   getRunErrors: (runId: number, search?: string, limit = 200) => {
     const params = new URLSearchParams()
     if (search?.trim()) params.set('search', search.trim())
@@ -258,6 +260,8 @@ export const api = {
     aggregate_load_avg_filter: string
     aggregate_submit_avg_title: string
     aggregate_submit_avg_filter: string
+    azure_monitor_enabled?: boolean
+    azure_monitor_targets?: import('./types').AzureMonitorTarget[]
   }) =>
     request<import('./types').SystemConfig>('/config', {
       method: 'PUT',

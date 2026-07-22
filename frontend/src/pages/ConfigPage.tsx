@@ -335,6 +335,97 @@ export default function ConfigPage() {
       </div>
 
       <div className="card">
+        <h2>Azure Target Servers (CPU / Memory)</h2>
+        <p className="config-section-hint">
+          During each test run, JMeter Agent polls Azure Monitor for CPU and Memory on these VMs
+          and stores the samples with the run results (same idea as JMeter host metrics). Past
+          reports keep the charts. Credentials stay in the server <code>.env</code> file — not
+          in this form. Exclude Application Insights; only Virtual Machines.
+        </p>
+        <div className="form-row config-checkbox-row">
+          <label>
+            <input
+              type="checkbox"
+              checked={form.azure_monitor_enabled}
+              onChange={(e) => setForm({ ...form, azure_monitor_enabled: e.target.checked })}
+            />
+            Enable Azure Monitor sampling during test runs
+          </label>
+        </div>
+        <p className={`config-hint ${config?.azure_credentials_configured ? 'config-ok' : 'config-warn'}`}>
+          {config?.azure_credentials_configured
+            ? 'Azure credentials found in .env (tenant, client, secret, subscription).'
+            : 'Azure credentials missing — set AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_SUBSCRIPTION_ID in .env'}
+        </p>
+        {form.azure_monitor_targets.map((target, index) => (
+          <div className="config-form-grid" key={`${target.name}-${index}`}>
+            <div className="form-row">
+              <label htmlFor={`azure_name_${index}`}>Server name</label>
+              <input
+                id={`azure_name_${index}`}
+                value={target.name}
+                onChange={(e) => {
+                  const next = [...form.azure_monitor_targets]
+                  next[index] = { ...next[index], name: e.target.value }
+                  setForm({ ...form, azure_monitor_targets: next })
+                }}
+              />
+            </div>
+            <div className="form-row">
+              <label htmlFor={`azure_rid_${index}`}>Azure resource ID</label>
+              <input
+                id={`azure_rid_${index}`}
+                value={target.resource_id}
+                onChange={(e) => {
+                  const next = [...form.azure_monitor_targets]
+                  next[index] = { ...next[index], resource_id: e.target.value }
+                  setForm({ ...form, azure_monitor_targets: next })
+                }}
+                placeholder="/subscriptions/.../resourceGroups/.../providers/Microsoft.Compute/virtualMachines/NAME"
+              />
+            </div>
+          </div>
+        ))}
+        <div className="toolbar" style={{ marginTop: '0.75rem', gap: '0.5rem' }}>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() =>
+              setForm({
+                ...form,
+                azure_monitor_targets: [
+                  ...form.azure_monitor_targets,
+                  { name: '', resource_id: '' },
+                ],
+              })
+            }
+          >
+            Add server
+          </button>
+          <button
+            type="button"
+            className="btn"
+            disabled={saving}
+            onClick={() => {
+              void (async () => {
+                setSaving(true)
+                try {
+                  const updated = await api.saveConfig(form)
+                  applySavedConfig(updated, 'Azure Monitor settings saved')
+                } catch (err) {
+                  toast.error(err instanceof Error ? err.message : 'Failed to save Azure settings')
+                } finally {
+                  setSaving(false)
+                }
+              })()
+            }}
+          >
+            {saving ? 'Saving…' : 'Save Azure Settings'}
+          </button>
+        </div>
+      </div>
+
+      <div className="card">
         <form className="config-form" onSubmit={saveAggregateConfig}>
           <h2>Aggregate Report Summary</h2>
           <p className="config-section-hint">

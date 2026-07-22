@@ -13,6 +13,7 @@ from app.database import SessionLocal, get_db
 from app.models import Application, Build, Release, Scenario, ScenarioSchedule, TestRun, TestRunStatus, TestRunType
 from app.schemas import (
     ArtifactInfo,
+    AzureResourcesOut,
     CompareRequest,
     CompareRunSummary,
     ErrorSample,
@@ -39,6 +40,7 @@ from app.schemas import (
 )
 from app.services.jmeter_runner import run_manager
 from app.services.host_resources import load_host_resources
+from app.services.azure_resources import load_azure_resources
 from app.services.jtl_agg_cache import jtl_agg_cache
 from app.services.system_config import get_system_config
 from app.services.jtl_parser import (
@@ -523,6 +525,19 @@ def get_run_resources(run_id: int, db: Session = Depends(get_db)):
         )
     data = load_host_resources(run_dir)
     return HostResourcesOut.model_validate(data)
+
+
+@router.get("/{run_id}/azure-resources", response_model=AzureResourcesOut)
+def get_run_azure_resources(run_id: int, db: Session = Depends(get_db)):
+    """Azure VM CPU/Memory samples stored with the run (for live + past reports)."""
+    run = db.get(TestRun, run_id)
+    if not run:
+        raise HTTPException(404, "Test run not found")
+    run_dir = ensure_run_directory(run)
+    if not run_dir:
+        return AzureResourcesOut(interval_seconds=60, targets=[], samples=[])
+    data = load_azure_resources(run_dir)
+    return AzureResourcesOut.model_validate(data)
 
 
 @router.get("/{run_id}/metrics")

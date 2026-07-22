@@ -28,7 +28,14 @@ from app.services.host_resources import (
     load_host_resources,
     save_host_resources,
 )
-from app.services.system_config import get_system_config
+from app.services.azure_resources import (
+    append_azure_sample,
+    load_azure_resources,
+    normalize_azure_interval,
+    save_azure_resources,
+)
+from app.services.azure_monitor import azure_credentials_configured
+from app.services.system_config import get_enabled_azure_targets, get_system_config
 from app.services.process_utils import (
     detached_creation_flags,
     ensure_jmeter_stopped,
@@ -55,6 +62,7 @@ class RunManager:
         self._jmeter_pids: dict[int, int] = {}
         self._tail_tasks: dict[int, asyncio.Task] = {}
         self._resource_tasks: dict[int, asyncio.Task] = {}
+        self._azure_resource_tasks: dict[int, asyncio.Task] = {}
         self._resource_alert_state: dict[int, HostResourceAlertState] = {}
         self._ws_subscribers: dict[int, set] = defaultdict(set)
         self._lock = threading.Lock()
@@ -219,6 +227,9 @@ class RunManager:
             self._resource_tasks[test_run.id] = loop.create_task(
                 self._sample_host_resources(test_run.id, run_path, started_at, proc)
             )
+            self._azure_resource_tasks[test_run.id] = loop.create_task(
+                self._sample_azure_resources(test_run.id, run_path, started_at, proc)
+            )
         except Exception as exc:
             if console_f:
                 try:
@@ -295,6 +306,54 @@ class RunManager:
             self._resource_alert_state.pop(run_id, None)
             if samples:
                 save_host_resources(run_path, samples, interval)
+
+    async def _sample_azure_resources(
+        self,
+        run_id: int,
+        run_path: Path,
+        started_at: datetime,
+        proc: subprocess.Popen | None,
+    ) -> None:
+        """Poll Azure Monitor CPU/Memory for configured VMs and store with the run."""
+        samples: list[dict] = []
+        existing = load_azure_resources(run_path)
+        if isinstance(existing.get("samples"), list):
+            samples = list(existing["samples"])
+
+        db = SessionLocal()
+        try:
+            cfg = get_system_config(db)
+            targets = get_enabled_azure_targets(cfg)
+            interval = normalize_azure_interval(cfg.resource_sample_interval_seconds)
+        finally:
+            db.close()
+
+        if not targets or not azure_credentials_configured():
+            return
+
+        loop = asyncio.get_event_loop()
+        try:
+            while self._is_run_active(run_id, proc):
+                await loop.run_in_executor(
+                    None,
+                    append_azure_sample,
+                    run_path,
+                    started_at,
+                    samples,
+                    targets,
+                    interval,
+                )
+                await asyncio.sleep(interval)
+        except asyncio.CancelledError:
+            pass
+        finally:
+            if samples:
+                save_azure_resources(
+                    run_path,
+                    samples=samples,
+                    targets=targets,
+                    interval_seconds=interval,
+                )
 
     async def _tail_and_monitor(
         self,
@@ -514,10 +573,21 @@ class RunManager:
                 self._resource_tasks[run.id] = loop.create_task(
                     self._sample_host_resources(run.id, run_path, started_at, None)
                 )
+                self._azure_resource_tasks[run.id] = loop.create_task(
+                    self._sample_azure_resources(run.id, run_path, started_at, None)
+                )
                 resumed.append(run.id)
         finally:
             db.close()
         return resumed
+
+    def _cancel_resource_tasks(self, run_id: int) -> None:
+        resource_task = self._resource_tasks.pop(run_id, None)
+        if resource_task and not resource_task.done():
+            resource_task.cancel()
+        azure_task = self._azure_resource_tasks.pop(run_id, None)
+        if azure_task and not azure_task.done():
+            azure_task.cancel()
 
     def _finalize_run_process(self, run_id: int) -> None:
         """Ensure JMeter/Java is dead and drop process handles after a run ends."""
@@ -527,9 +597,7 @@ class RunManager:
         if root_pid or jmeter_pid:
             ensure_jmeter_stopped(root_pid, jmeter_pid)
 
-        resource_task = self._resource_tasks.pop(run_id, None)
-        if resource_task and not resource_task.done():
-            resource_task.cancel()
+        self._cancel_resource_tasks(run_id)
 
     def _force_stop_jmeter(self, run_id: int, fallback_pid: int | None = None) -> bool:
         proc = self._processes.get(run_id)
@@ -562,9 +630,7 @@ class RunManager:
 
         self._processes.pop(run_id, None)
         self._jmeter_pids.pop(run_id, None)
-        resource_task = self._resource_tasks.pop(run_id, None)
-        if resource_task and not resource_task.done():
-            resource_task.cancel()
+        self._cancel_resource_tasks(run_id)
         return True
 
     def cancel_run(self, run_id: int, fallback_pid: int | None = None) -> bool:
@@ -576,9 +642,7 @@ class RunManager:
         task = self._tail_tasks.pop(run_id, None)
         if task and not task.done():
             task.cancel()
-        resource_task = self._resource_tasks.pop(run_id, None)
-        if resource_task and not resource_task.done():
-            resource_task.cancel()
+        self._cancel_resource_tasks(run_id)
         self._processes.pop(run_id, None)
         self._jmeter_pids.pop(run_id, None)
         self._aggregators.pop(run_id, None)

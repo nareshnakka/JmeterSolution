@@ -451,6 +451,11 @@ class TestRunReportOut(BaseModel):
     errors_graph: dict[str, Any] = Field(default_factory=dict)
 
 
+class AzureMonitorTarget(BaseModel):
+    name: str
+    resource_id: str = ""
+
+
 class SystemConfigOut(BaseModel):
     jmeter_home: str
     data_root: str
@@ -465,6 +470,9 @@ class SystemConfigOut(BaseModel):
     aggregate_load_avg_filter: str
     aggregate_submit_avg_title: str
     aggregate_submit_avg_filter: str
+    azure_monitor_enabled: bool = False
+    azure_monitor_targets: list[AzureMonitorTarget] = Field(default_factory=list)
+    azure_credentials_configured: bool = False
     jmeter_found: bool
     updated_at: datetime | None = None
 
@@ -485,6 +493,25 @@ class SystemConfigUpdate(BaseModel):
     aggregate_load_avg_filter: str = Field(default="_L_", max_length=256)
     aggregate_submit_avg_title: str = Field(default="Submit Avg", min_length=1, max_length=128)
     aggregate_submit_avg_filter: str = Field(default="_S_", max_length=256)
+    azure_monitor_enabled: bool = False
+    azure_monitor_targets: list[AzureMonitorTarget] = Field(default_factory=list)
+
+
+class AzureVmSample(BaseModel):
+    cpu_percent: float | None = None
+    memory_percent: float | None = None
+
+
+class AzureResourceSample(BaseModel):
+    t: float
+    recorded_at: str | None = None
+    servers: dict[str, AzureVmSample] = Field(default_factory=dict)
+
+
+class AzureResourcesOut(BaseModel):
+    interval_seconds: int
+    targets: list[AzureMonitorTarget] = Field(default_factory=list)
+    samples: list[AzureResourceSample] = Field(default_factory=list)
 
 
 class AggregateSummaryConfigUpdate(BaseModel):

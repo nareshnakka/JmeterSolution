@@ -8,3 +8,4 @@ apscheduler==3.10.4
 aiofiles==24.1.0
 websockets==14.1
 psutil>=7.0.0
+azure-identity>=1.19.0
