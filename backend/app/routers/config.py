@@ -1,8 +1,6 @@
-"""System configuration and archive management."""
-
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -22,6 +20,7 @@ from app.schemas import (
 from app.services.archive import archive_test_run, auto_archive_old_runs, restore_test_run
 from app.services.azure_monitor import azure_credentials_configured, diagnose_azure_monitor
 from app.services.azure_login import is_signed_in
+from app.services.jmeter_runner import run_manager
 from app.services.system_config import (
     get_enabled_azure_targets,
     get_system_config,
@@ -86,7 +85,11 @@ def test_azure_monitor(db: Session = Depends(get_db)):
 
 
 @router.put("", response_model=SystemConfigOut)
-def save_config(body: SystemConfigUpdate, db: Session = Depends(get_db)):
+def save_config(
+    body: SystemConfigUpdate,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
     try:
         cfg = update_system_config(
             db,
@@ -110,6 +113,8 @@ def save_config(body: SystemConfigUpdate, db: Session = Depends(get_db)):
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
+    if body.azure_monitor_enabled:
+        background_tasks.add_task(run_manager.ensure_azure_sampling_for_active_runs)
     return _to_config_out(cfg)
 
 

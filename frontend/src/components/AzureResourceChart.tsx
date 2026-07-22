@@ -89,7 +89,9 @@ function AzureResourceChart({
   )
 
   const latest = resources?.samples?.[resources.samples.length - 1]
+  // Show chart as soon as we have targets or samples (even before first metric point).
   const hasData = chartData.length > 0 && serverNames.length > 0
+  const hasTargets = (resources?.targets?.length ?? 0) > 0 || serverNames.length > 0
 
   const metaParts: string[] = []
   if (latest) {
@@ -162,7 +164,9 @@ function AzureResourceChart({
       ) : (
         <p className="empty">
           {isRunning
-            ? 'Collecting Azure CPU/Memory samples… Enable Azure Monitor in Configuration'
+            ? hasTargets
+              ? 'Collecting first Azure CPU/Memory sample…'
+              : 'Waiting for Azure sampling to start… Click Save Azure Settings if you just configured VMs, or restart the test.'
             : 'No Azure server metrics stored for this run'}
         </p>
       )}

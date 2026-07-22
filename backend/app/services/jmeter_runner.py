@@ -314,28 +314,50 @@ class RunManager:
         started_at: datetime,
         proc: subprocess.Popen | None,
     ) -> None:
-        """Poll Azure Monitor CPU/Memory for configured VMs and store with the run."""
+        """Poll Azure Monitor CPU/Memory for configured VMs and store with the run.
+
+        Waits for Azure sign-in + configured targets if they were not ready when the
+        test started (common when user configures Azure mid-run).
+        """
+        import logging
+
+        logger = logging.getLogger(__name__)
         samples: list[dict] = []
         existing = load_azure_resources(run_path)
         if isinstance(existing.get("samples"), list):
             samples = list(existing["samples"])
 
-        db = SessionLocal()
-        try:
-            cfg = get_system_config(db)
-            targets = get_enabled_azure_targets(cfg)
-            interval = normalize_azure_interval(
-                int(getattr(cfg, "azure_monitor_sample_interval_seconds", 10) or 10)
-            )
-        finally:
-            db.close()
-
-        if not targets or not azure_credentials_configured():
-            return
-
+        targets: list[dict[str, str]] = []
+        interval = normalize_azure_interval(10)
         loop = asyncio.get_event_loop()
         try:
             while self._is_run_active(run_id, proc):
+                if not targets or not azure_credentials_configured():
+                    db = SessionLocal()
+                    try:
+                        cfg = get_system_config(db)
+                        targets = get_enabled_azure_targets(cfg)
+                        interval = normalize_azure_interval(
+                            int(getattr(cfg, "azure_monitor_sample_interval_seconds", 10) or 10)
+                        )
+                    finally:
+                        db.close()
+                    if not targets or not azure_credentials_configured():
+                        await asyncio.sleep(interval)
+                        continue
+                    # Persist targets immediately so Live Dashboard knows monitoring is on.
+                    save_azure_resources(
+                        run_path,
+                        samples=samples,
+                        targets=targets,
+                        interval_seconds=interval,
+                    )
+                    logger.info(
+                        "Azure Monitor sampling started for run %s (%s target(s))",
+                        run_id,
+                        len(targets),
+                    )
+
                 await loop.run_in_executor(
                     None,
                     append_azure_sample,
@@ -356,6 +378,36 @@ class RunManager:
                     targets=targets,
                     interval_seconds=interval,
                 )
+
+    async def ensure_azure_sampling_for_active_runs(self) -> int:
+        """Restart Azure sampling for tracked runs whose sampler exited before config was ready."""
+        if not azure_credentials_configured():
+            return 0
+        db = SessionLocal()
+        started = 0
+        try:
+            cfg = get_system_config(db)
+            targets = get_enabled_azure_targets(cfg)
+            if not targets:
+                return 0
+            for run_id in list(self._aggregators.keys()):
+                existing = self._azure_resource_tasks.get(run_id)
+                if existing is not None and not existing.done():
+                    continue
+                run = db.get(TestRun, run_id)
+                if not run or run.status != TestRunStatus.RUNNING or not run.run_dir:
+                    continue
+                run_path = Path(run.run_dir)
+                started_at = run.started_at or datetime.utcnow()
+                proc = self._processes.get(run_id)
+                loop = asyncio.get_running_loop()
+                self._azure_resource_tasks[run_id] = loop.create_task(
+                    self._sample_azure_resources(run_id, run_path, started_at, proc)
+                )
+                started += 1
+        finally:
+            db.close()
+        return started
 
     async def _tail_and_monitor(
         self,

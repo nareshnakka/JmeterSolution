@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -14,6 +14,7 @@ from app.services.azure_monitor import (
     clear_token_cache,
     sample_configured_targets,
 )
+from app.services.jmeter_runner import run_manager
 from app.services.system_config import (
     get_enabled_azure_targets,
     get_system_config,
@@ -108,18 +109,25 @@ def azure_login_start():
 
 
 @router.get("/login/{session_id}", response_model=AzureLoginSessionOut)
-def azure_login_poll(session_id: str, db: Session = Depends(get_db)):
+def azure_login_poll(
+    session_id: str,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
     session = azure_login.get_login_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Login session not found")
 
-    if session.status == "success":
+    if session.status == "success" and not getattr(session, "_azure_kick_done", False):
+        session._azure_kick_done = True  # type: ignore[attr-defined]
         clear_token_cache()
         # Auto-enable sampling so the next test run picks up live Azure metrics.
         cfg = get_system_config(db)
         if not getattr(cfg, "azure_monitor_enabled", False):
             cfg.azure_monitor_enabled = True
             db.commit()
+        # Mid-run: start sampling if a test is already active.
+        background_tasks.add_task(run_manager.ensure_azure_sampling_for_active_runs)
 
     return AzureLoginSessionOut(
         session_id=session.session_id,
