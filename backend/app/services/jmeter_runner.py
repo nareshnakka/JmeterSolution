@@ -324,7 +324,9 @@ class RunManager:
         try:
             cfg = get_system_config(db)
             targets = get_enabled_azure_targets(cfg)
-            interval = normalize_azure_interval(cfg.resource_sample_interval_seconds)
+            interval = normalize_azure_interval(
+                int(getattr(cfg, "azure_monitor_sample_interval_seconds", 10) or 10)
+            )
         finally:
             db.close()
 

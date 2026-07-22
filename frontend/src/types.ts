@@ -336,6 +336,8 @@ export interface SystemConfig {
   aggregate_submit_avg_filter: string
   azure_monitor_enabled?: boolean
   azure_monitor_targets?: AzureMonitorTarget[]
+  azure_monitor_sample_interval_seconds?: number
+  azure_monitor_resource_group?: string
   azure_credentials_configured?: boolean
   jmeter_found: boolean
   updated_at?: string

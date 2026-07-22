@@ -262,6 +262,8 @@ export const api = {
     aggregate_submit_avg_filter: string
     azure_monitor_enabled?: boolean
     azure_monitor_targets?: import('./types').AzureMonitorTarget[]
+    azure_monitor_sample_interval_seconds?: number
+    azure_monitor_resource_group?: string
   }) =>
     request<import('./types').SystemConfig>('/config', {
       method: 'PUT',

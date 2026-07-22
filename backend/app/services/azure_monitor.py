@@ -37,6 +37,46 @@ def azure_credentials_configured() -> bool:
     )
 
 
+def build_vm_resource_id(
+    *,
+    subscription_id: str,
+    resource_group: str,
+    vm_name: str,
+) -> str:
+    """Build a full Azure VM resource ID from subscription + RG + name."""
+    sub = subscription_id.strip().strip("/")
+    rg = resource_group.strip()
+    name = vm_name.strip()
+    if not sub or not rg or not name:
+        return ""
+    return (
+        f"/subscriptions/{sub}/resourceGroups/{rg}"
+        f"/providers/Microsoft.Compute/virtualMachines/{name}"
+    )
+
+
+def fill_missing_resource_ids(
+    targets: list[dict[str, str]],
+    *,
+    subscription_id: str,
+    resource_group: str,
+) -> list[dict[str, str]]:
+    """Fill blank resource_id values from default subscription + resource group + VM name."""
+    out: list[dict[str, str]] = []
+    for item in targets:
+        name = str(item.get("name") or "").strip()
+        resource_id = str(item.get("resource_id") or "").strip()
+        if name and not resource_id:
+            resource_id = build_vm_resource_id(
+                subscription_id=subscription_id,
+                resource_group=resource_group,
+                vm_name=name,
+            )
+        if name:
+            out.append({"name": name, "resource_id": resource_id})
+    return out
+
+
 def parse_azure_targets(raw: str | None) -> list[dict[str, str]]:
     """Parse targets JSON: [{name, resource_id}, ...]."""
     if not raw or not raw.strip():

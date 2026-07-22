@@ -121,6 +121,8 @@ def get_system_config(db: Session) -> SystemConfig:
             aggregate_submit_avg_filter=DEFAULT_AGGREGATE_SUBMIT_AVG_FILTER,
             azure_monitor_enabled=False,
             azure_monitor_targets_json=DEFAULT_AZURE_MONITOR_TARGETS_JSON,
+            azure_monitor_sample_interval_seconds=10,
+            azure_monitor_resource_group="",
         )
         db.add(cfg)
         db.commit()
@@ -147,6 +149,8 @@ def update_system_config(
     aggregate_submit_avg_filter: str,
     azure_monitor_enabled: bool = False,
     azure_monitor_targets: list[dict[str, str]] | None = None,
+    azure_monitor_sample_interval_seconds: int = 10,
+    azure_monitor_resource_group: str = "",
 ) -> SystemConfig:
     cfg = get_system_config(db)
     jmeter_path = Path(jmeter_home)
@@ -190,7 +194,19 @@ def update_system_config(
     cfg.aggregate_submit_avg_filter = normalize_aggregate_filter(aggregate_submit_avg_filter)
     cfg.azure_monitor_enabled = bool(azure_monitor_enabled)
     if azure_monitor_targets is not None:
-        cfg.azure_monitor_targets_json = normalize_azure_targets_for_storage(azure_monitor_targets)
+        # Auto-fill blank resource IDs from subscription (.env) + default resource group.
+        from app.config import settings as app_settings
+        from app.services.azure_monitor import fill_missing_resource_ids
+
+        filled = fill_missing_resource_ids(
+            azure_monitor_targets,
+            subscription_id=app_settings.azure_subscription_id,
+            resource_group=azure_monitor_resource_group
+            or getattr(cfg, "azure_monitor_resource_group", ""),
+        )
+        cfg.azure_monitor_targets_json = normalize_azure_targets_for_storage(filled)
+    cfg.azure_monitor_sample_interval_seconds = max(10, min(300, int(azure_monitor_sample_interval_seconds or 10)))
+    cfg.azure_monitor_resource_group = (azure_monitor_resource_group or "").strip()
     db.commit()
     db.refresh(cfg)
     apply_runtime_paths(cfg.jmeter_home, cfg.data_root)

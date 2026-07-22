@@ -166,6 +166,25 @@ def _migrate_schema() -> None:
                     )
                 )
                 logger.info("Added system_config.azure_monitor_targets_json")
+        cfg_cols = {c["name"] for c in inspect(engine).get_columns("system_config")}
+        if "azure_monitor_sample_interval_seconds" not in cfg_cols:
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "ALTER TABLE system_config "
+                        "ADD COLUMN azure_monitor_sample_interval_seconds INTEGER NOT NULL DEFAULT 10"
+                    )
+                )
+                logger.info("Added system_config.azure_monitor_sample_interval_seconds")
+        if "azure_monitor_resource_group" not in cfg_cols:
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "ALTER TABLE system_config "
+                        "ADD COLUMN azure_monitor_resource_group VARCHAR(256) NOT NULL DEFAULT ''"
+                    )
+                )
+                logger.info("Added system_config.azure_monitor_resource_group")
 
     if "scenarios" in insp.get_table_names():
         scenario_cols = {c["name"] for c in insp.get_columns("scenarios")}

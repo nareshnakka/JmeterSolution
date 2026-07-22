@@ -472,6 +472,8 @@ class SystemConfigOut(BaseModel):
     aggregate_submit_avg_filter: str
     azure_monitor_enabled: bool = False
     azure_monitor_targets: list[AzureMonitorTarget] = Field(default_factory=list)
+    azure_monitor_sample_interval_seconds: int = 10
+    azure_monitor_resource_group: str = ""
     azure_credentials_configured: bool = False
     jmeter_found: bool
     updated_at: datetime | None = None
@@ -495,6 +497,8 @@ class SystemConfigUpdate(BaseModel):
     aggregate_submit_avg_filter: str = Field(default="_S_", max_length=256)
     azure_monitor_enabled: bool = False
     azure_monitor_targets: list[AzureMonitorTarget] = Field(default_factory=list)
+    azure_monitor_sample_interval_seconds: int = Field(default=10, ge=10, le=300)
+    azure_monitor_resource_group: str = Field(default="", max_length=256)
 
 
 class AzureVmSample(BaseModel):

@@ -49,6 +49,10 @@ def _to_config_out(cfg) -> SystemConfigOut:
         aggregate_submit_avg_filter=getattr(cfg, "aggregate_submit_avg_filter", "_S_"),
         azure_monitor_enabled=bool(getattr(cfg, "azure_monitor_enabled", False)),
         azure_monitor_targets=list_azure_targets_from_config(cfg),
+        azure_monitor_sample_interval_seconds=int(
+            getattr(cfg, "azure_monitor_sample_interval_seconds", 10) or 10
+        ),
+        azure_monitor_resource_group=str(getattr(cfg, "azure_monitor_resource_group", "") or ""),
         azure_credentials_configured=azure_credentials_configured(),
         jmeter_found=(jmeter_path / "bin" / "jmeter.bat").is_file(),
         updated_at=cfg.updated_at,
@@ -81,6 +85,8 @@ def save_config(body: SystemConfigUpdate, db: Session = Depends(get_db)):
             aggregate_submit_avg_filter=body.aggregate_submit_avg_filter,
             azure_monitor_enabled=body.azure_monitor_enabled,
             azure_monitor_targets=[t.model_dump() for t in body.azure_monitor_targets],
+            azure_monitor_sample_interval_seconds=body.azure_monitor_sample_interval_seconds,
+            azure_monitor_resource_group=body.azure_monitor_resource_group,
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc

@@ -16,6 +16,8 @@ export interface ConfigFormState {
   aggregate_submit_avg_filter: string
   azure_monitor_enabled: boolean
   azure_monitor_targets: AzureMonitorTarget[]
+  azure_monitor_sample_interval_seconds: number
+  azure_monitor_resource_group: string
 }
 
 export const DEFAULT_AZURE_TARGETS: AzureMonitorTarget[] = [
@@ -40,6 +42,8 @@ export const DEFAULT_CONFIG_FORM: ConfigFormState = {
   aggregate_submit_avg_filter: '_S_',
   azure_monitor_enabled: false,
   azure_monitor_targets: DEFAULT_AZURE_TARGETS,
+  azure_monitor_sample_interval_seconds: 10,
+  azure_monitor_resource_group: '',
 }
 
 export function configFormFromSystem(data: SystemConfig): ConfigFormState {
@@ -65,6 +69,8 @@ export function configFormFromSystem(data: SystemConfig): ConfigFormState {
             resource_id: t.resource_id ?? '',
           }))
         : DEFAULT_AZURE_TARGETS,
+    azure_monitor_sample_interval_seconds: data.azure_monitor_sample_interval_seconds ?? 10,
+    azure_monitor_resource_group: data.azure_monitor_resource_group ?? '',
   }
 }
 

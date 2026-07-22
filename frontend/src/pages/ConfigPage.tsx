@@ -337,10 +337,10 @@ export default function ConfigPage() {
       <div className="card">
         <h2>Azure Target Servers (CPU / Memory)</h2>
         <p className="config-section-hint">
-          During each test run, JMeter Agent polls Azure Monitor for CPU and Memory on these VMs
-          and stores the samples with the run results (same idea as JMeter host metrics). Past
-          reports keep the charts. Credentials stay in the server <code>.env</code> file — not
-          in this form. Exclude Application Insights; only Virtual Machines.
+          During each test run, JMeter Agent polls these VMs and stores CPU/Memory with the run
+          (same idea as JMeter host metrics). Add or remove servers anytime — no code change.
+          Set a default resource group once, then new servers only need a VM name (resource ID is
+          filled automatically from subscription in <code>.env</code>).
         </p>
         <div className="form-row config-checkbox-row">
           <label>
@@ -357,35 +357,96 @@ export default function ConfigPage() {
             ? 'Azure credentials found in .env (tenant, client, secret, subscription).'
             : 'Azure credentials missing — set AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_SUBSCRIPTION_ID in .env'}
         </p>
-        {form.azure_monitor_targets.map((target, index) => (
-          <div className="config-form-grid" key={`${target.name}-${index}`}>
-            <div className="form-row">
-              <label htmlFor={`azure_name_${index}`}>Server name</label>
-              <input
-                id={`azure_name_${index}`}
-                value={target.name}
-                onChange={(e) => {
-                  const next = [...form.azure_monitor_targets]
-                  next[index] = { ...next[index], name: e.target.value }
-                  setForm({ ...form, azure_monitor_targets: next })
-                }}
-              />
-            </div>
-            <div className="form-row">
-              <label htmlFor={`azure_rid_${index}`}>Azure resource ID</label>
-              <input
-                id={`azure_rid_${index}`}
-                value={target.resource_id}
-                onChange={(e) => {
-                  const next = [...form.azure_monitor_targets]
-                  next[index] = { ...next[index], resource_id: e.target.value }
-                  setForm({ ...form, azure_monitor_targets: next })
-                }}
-                placeholder="/subscriptions/.../resourceGroups/.../providers/Microsoft.Compute/virtualMachines/NAME"
-              />
-            </div>
+        <div className="config-form-grid">
+          <div className="form-row">
+            <label htmlFor="azure_rg">Default resource group</label>
+            <input
+              id="azure_rg"
+              value={form.azure_monitor_resource_group}
+              onChange={(e) =>
+                setForm({ ...form, azure_monitor_resource_group: e.target.value })
+              }
+              placeholder="e.g. PQSQC-RG"
+            />
+            <span className="config-hint">
+              Used to auto-build resource IDs when you add a VM by name only.
+            </span>
           </div>
-        ))}
+          <div className="form-row">
+            <label htmlFor="azure_interval">Azure metrics sync interval (seconds)</label>
+            <input
+              id="azure_interval"
+              type="number"
+              min={10}
+              max={300}
+              value={form.azure_monitor_sample_interval_seconds}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  azure_monitor_sample_interval_seconds: Number(e.target.value) || 10,
+                })
+              }
+            />
+            <span className="config-hint">
+              Default: 10 seconds (10–300). Azure may publish points about every minute; charts
+              still refresh on this interval.
+            </span>
+          </div>
+        </div>
+        <table className="data-table" style={{ marginTop: '0.75rem' }}>
+          <thead>
+            <tr>
+              <th>Server name</th>
+              <th>Azure resource ID</th>
+              <th style={{ width: 90 }} />
+            </tr>
+          </thead>
+          <tbody>
+            {form.azure_monitor_targets.map((target, index) => (
+              <tr key={`azure-row-${index}`}>
+                <td>
+                  <input
+                    value={target.name}
+                    onChange={(e) => {
+                      const next = [...form.azure_monitor_targets]
+                      next[index] = { ...next[index], name: e.target.value }
+                      setForm({ ...form, azure_monitor_targets: next })
+                    }}
+                    placeholder="VM name"
+                    style={{ width: '100%' }}
+                  />
+                </td>
+                <td>
+                  <input
+                    value={target.resource_id}
+                    onChange={(e) => {
+                      const next = [...form.azure_monitor_targets]
+                      next[index] = { ...next[index], resource_id: e.target.value }
+                      setForm({ ...form, azure_monitor_targets: next })
+                    }}
+                    placeholder="Auto-filled on Save if resource group is set"
+                    style={{ width: '100%' }}
+                  />
+                </td>
+                <td>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => {
+                      const next = form.azure_monitor_targets.filter((_, i) => i !== index)
+                      setForm({
+                        ...form,
+                        azure_monitor_targets: next.length ? next : [{ name: '', resource_id: '' }],
+                      })
+                    }}
+                  >
+                    Remove
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
         <div className="toolbar" style={{ marginTop: '0.75rem', gap: '0.5rem' }}>
           <button
             type="button"

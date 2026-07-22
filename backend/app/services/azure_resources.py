@@ -7,11 +7,13 @@ from datetime import datetime
 from pathlib import Path
 
 from app.services.azure_monitor import sample_configured_targets
-from app.services.system_config import DEFAULT_RESOURCE_SAMPLE_INTERVAL_SECONDS
 
 AZURE_RESOURCES_FILENAME = "azure_resources.json"
-# Azure metrics are typically 1-minute resolution; avoid hammering the API.
-MIN_AZURE_SAMPLE_INTERVAL_SECONDS = 60
+# Azure metrics resolution is often ~1 minute; polling can still be every 10s
+# so charts update promptly (values may repeat until Azure publishes a new point).
+MIN_AZURE_SAMPLE_INTERVAL_SECONDS = 10
+MAX_AZURE_SAMPLE_INTERVAL_SECONDS = 300
+DEFAULT_AZURE_SAMPLE_INTERVAL_SECONDS = 10
 
 
 def azure_resources_path(run_dir: Path) -> Path:
@@ -22,7 +24,7 @@ def load_azure_resources(run_dir: Path) -> dict:
     path = azure_resources_path(run_dir)
     if not path.is_file():
         return {
-            "interval_seconds": MIN_AZURE_SAMPLE_INTERVAL_SECONDS,
+            "interval_seconds": DEFAULT_AZURE_SAMPLE_INTERVAL_SECONDS,
             "targets": [],
             "samples": [],
         }
@@ -33,7 +35,7 @@ def load_azure_resources(run_dir: Path) -> dict:
     except (json.JSONDecodeError, OSError):
         pass
     return {
-        "interval_seconds": MIN_AZURE_SAMPLE_INTERVAL_SECONDS,
+        "interval_seconds": DEFAULT_AZURE_SAMPLE_INTERVAL_SECONDS,
         "targets": [],
         "samples": [],
     }
@@ -59,8 +61,8 @@ def save_azure_resources(
 
 
 def normalize_azure_interval(seconds: int) -> int:
-    base = seconds if isinstance(seconds, int) and seconds > 0 else DEFAULT_RESOURCE_SAMPLE_INTERVAL_SECONDS
-    return max(MIN_AZURE_SAMPLE_INTERVAL_SECONDS, base)
+    base = seconds if isinstance(seconds, int) and seconds > 0 else DEFAULT_AZURE_SAMPLE_INTERVAL_SECONDS
+    return max(MIN_AZURE_SAMPLE_INTERVAL_SECONDS, min(MAX_AZURE_SAMPLE_INTERVAL_SECONDS, base))
 
 
 def append_azure_sample(

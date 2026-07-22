@@ -25,9 +25,30 @@ def test_parse_azure_targets_skips_blank_resource_ids_for_sampling():
     assert targets[0]["name"] == "PQSQCSQL2016N01"
 
 
-def test_normalize_azure_interval_floor():
-    assert normalize_azure_interval(10) == 60
+def test_normalize_azure_interval_allows_ten_seconds():
+    assert normalize_azure_interval(10) == 10
+    assert normalize_azure_interval(5) == 10
     assert normalize_azure_interval(90) == 90
+    assert normalize_azure_interval(400) == 300
+
+
+def test_build_vm_resource_id():
+    from app.services.azure_monitor import build_vm_resource_id, fill_missing_resource_ids
+
+    rid = build_vm_resource_id(
+        subscription_id="sub-1",
+        resource_group="MyRG",
+        vm_name="PQSQCVAL2022N01",
+    )
+    assert rid.endswith("/virtualMachines/PQSQCVAL2022N01")
+    assert "resourceGroups/MyRG" in rid
+
+    filled = fill_missing_resource_ids(
+        [{"name": "PQSQCVAL2022N01", "resource_id": ""}],
+        subscription_id="sub-1",
+        resource_group="MyRG",
+    )
+    assert filled[0]["resource_id"] == rid
 
 
 def test_save_and_load_azure_resources(tmp_path: Path):
