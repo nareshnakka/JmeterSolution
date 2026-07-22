@@ -248,6 +248,18 @@ export const api = {
   getConfig: () => request<import('./types').SystemConfig>('/config'),
   testAzureMonitor: () =>
     request<import('./types').AzureMonitorProbe>('/config/azure-monitor/test', { method: 'POST' }),
+  getAzureStatus: () => request<import('./types').AzureAuthStatus>('/azure/status'),
+  startAzureLogin: () =>
+    request<import('./types').AzureLoginSession>('/azure/login/start', { method: 'POST' }),
+  pollAzureLogin: (sessionId: string) =>
+    request<import('./types').AzureLoginSession>(`/azure/login/${encodeURIComponent(sessionId)}`),
+  cancelAzureLogin: (sessionId: string) =>
+    request<{ ok: boolean }>(`/azure/login/${encodeURIComponent(sessionId)}/cancel`, {
+      method: 'POST',
+    }),
+  azureLogout: () =>
+    request<import('./types').AzureAuthStatus>('/azure/logout', { method: 'POST' }),
+  getAzureLiveMetrics: () => request<import('./types').AzureLiveMetrics>('/azure/live-metrics'),
   saveConfig: (body: {
     jmeter_home: string
     data_root: string

@@ -183,6 +183,8 @@ export interface AzureResources {
 
 export interface AzureMonitorProbe {
   credentials_configured: boolean
+  auth_mode?: string
+  signed_in?: boolean
   tenant_id_set: boolean
   client_id_set: boolean
   client_secret_set: boolean
@@ -196,6 +198,43 @@ export interface AzureMonitorProbe {
   }[]
   ok: boolean
   message: string
+}
+
+export interface AzureAuthStatus {
+  signed_in: boolean
+  username?: string | null
+  tenant_id?: string | null
+  subscription_id?: string | null
+  subscription_id_set: boolean
+  signed_in_at?: string | null
+  client_id?: string | null
+  message: string
+  monitor_enabled: boolean
+  targets_configured: number
+}
+
+export interface AzureLoginSession {
+  session_id: string
+  status: string
+  user_code?: string | null
+  verification_uri?: string | null
+  message?: string | null
+  error?: string | null
+  account?: Record<string, unknown>
+}
+
+export interface AzureLiveMetrics {
+  signed_in: boolean
+  monitor_enabled: boolean
+  sampled_at: string
+  persisted: boolean
+  note: string
+  servers: {
+    name: string
+    cpu_percent?: number | null
+    memory_percent?: number | null
+    error?: string | null
+  }[]
 }
 
 /** Runs that finished (or were stopped) with results available for comparison. */
@@ -356,6 +395,7 @@ export interface SystemConfig {
   azure_monitor_sample_interval_seconds?: number
   azure_monitor_resource_group?: string
   azure_credentials_configured?: boolean
+  azure_signed_in?: boolean
   jmeter_found: boolean
   updated_at?: string
 }

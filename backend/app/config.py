@@ -24,9 +24,10 @@ class Settings(BaseSettings):
     azure_client_id: str = ""
     azure_client_secret: str = ""
     azure_subscription_id: str = ""
+    # interactive = Azure page device-code login (preferred; encrypted token cache)
+    # cli = use `az login` on this machine
     # client_secret = app registration (needs Monitoring Reader from admin)
-    # cli = use `az login` on this machine (uses YOUR user permissions — no app IAM needed)
-    azure_auth_mode: str = "client_secret"
+    azure_auth_mode: str = "interactive"
 
     @property
     def jmeter_bin(self) -> Path:

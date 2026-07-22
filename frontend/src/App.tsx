@@ -13,6 +13,7 @@ import QueuePage from './pages/QueuePage'
 import LiveDashboard from './pages/LiveDashboard'
 import ComparePage from './pages/ComparePage'
 import ConfigPage from './pages/ConfigPage'
+import AzurePage from './pages/AzurePage'
 import { APP_VERSION } from './version'
 
 export default function App() {
@@ -50,6 +51,7 @@ export default function App() {
               <NavLink to="/queue">Run Queue</NavLink>
               <NavLink to="/runs">Test Runs</NavLink>
               <NavLink to="/compare">Compare</NavLink>
+              <NavLink to="/azure">Azure Monitor</NavLink>
               <NavLink to="/config">Configuration</NavLink>
             </nav>
           </aside>
@@ -62,12 +64,13 @@ export default function App() {
               <Route path="/runs" element={<TestRunsPage />} />
               <Route path="/live/:runId" element={<LiveDashboard />} />
               <Route path="/compare" element={<ComparePage />} />
+              <Route path="/azure" element={<AzurePage />} />
               <Route path="/config" element={<ConfigPage />} />
             </Routes>
           </main>
         </div>
       </div>
-      </NotificationsProvider>
+    </NotificationsProvider>
       </ActiveRunsProvider>
       </ArchiveOperationsProvider>
     </ToastProvider>

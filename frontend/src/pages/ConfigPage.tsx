@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { api } from '../api'
 import {
   archiveStateBadge,
@@ -340,9 +341,10 @@ export default function ConfigPage() {
         <h2>Azure Target Servers (CPU / Memory)</h2>
         <p className="config-section-hint">
           During each test run, JMeter Agent polls these VMs and stores CPU/Memory with the run
-          (same idea as JMeter host metrics). Add or remove servers anytime — no code change.
-          Set a default resource group once, then new servers only need a VM name (resource ID is
-          filled automatically from subscription in <code>.env</code>).
+          (same idea as JMeter host metrics).           Sign in on the{' '}
+          <Link to="/azure">Azure Monitor</Link> page first — metrics are not saved when no test is
+          running. Set a default resource group once, then new servers only need a VM name
+          (resource ID is filled automatically from subscription in <code>.env</code>).
         </p>
         <div className="form-row config-checkbox-row">
           <label>
@@ -354,10 +356,12 @@ export default function ConfigPage() {
             Enable Azure Monitor sampling during test runs
           </label>
         </div>
-        <p className={`config-hint ${config?.azure_credentials_configured ? 'config-ok' : 'config-warn'}`}>
-          {config?.azure_credentials_configured
-            ? 'Azure credentials found in .env (tenant, client, secret, subscription).'
-            : 'Azure credentials missing — set AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_SUBSCRIPTION_ID in project-root .env, then restart.'}
+        <p className={`config-hint ${config?.azure_signed_in || config?.azure_credentials_configured ? 'config-ok' : 'config-warn'}`}>
+          {config?.azure_signed_in
+            ? 'Signed in via Azure Monitor page — ready to sample during test runs.'
+            : config?.azure_credentials_configured
+              ? 'Azure credentials available (.env / CLI). Prefer signing in on the Azure Monitor page.'
+              : 'Not signed in — open Azure Monitor in the sidebar and sign in with Microsoft.'}
         </p>
         {azureProbeMsg ? (
           <p className={`config-hint ${azureProbeMsg.startsWith('OK') ? 'config-ok' : 'config-warn'}`}>

@@ -30,21 +30,42 @@ MEMORY_HOST_METRIC = "Available Memory Percentage"
 
 def azure_auth_mode() -> str:
     mode = (settings.azure_auth_mode or "client_secret").strip().lower()
+    if mode in ("interactive", "device_code", "user", "login"):
+        return "interactive"
     if mode in ("cli", "azure_cli", "default"):
         return "cli"
     return "client_secret"
 
 
 def azure_credentials_configured() -> bool:
+    """True when we can attempt Azure Monitor calls (subscription + some auth path)."""
     if not settings.azure_subscription_id.strip():
         return False
-    if azure_auth_mode() == "cli":
+    try:
+        from app.services.azure_login import is_signed_in
+
+        if is_signed_in():
+            return True
+    except Exception:
+        pass
+    mode = azure_auth_mode()
+    if mode == "cli":
         return True
+    if mode == "interactive":
+        # Device-code login required — do not sample until signed in on the Azure page.
+        return False
     return bool(
         settings.azure_tenant_id.strip()
         and settings.azure_client_id.strip()
         and settings.azure_client_secret.strip()
     )
+
+
+def clear_token_cache() -> None:
+    global _cached_token, _cached_token_expires
+    with _token_lock:
+        _cached_token = None
+        _cached_token_expires = None
 
 
 def _get_access_token() -> str:
@@ -68,25 +89,64 @@ def _get_access_token() -> str:
             "azure-identity is not installed. Run: pip install azure-identity"
         ) from exc
 
+    token = None
+    errors: list[str] = []
+
+    # 1) In-app Microsoft login (encrypted token cache) — preferred.
+    try:
+        from app.services.azure_login import get_interactive_token, is_signed_in
+
+        if is_signed_in():
+            access = get_interactive_token()
+            # Synthetic expires — interactive path refreshes via MSAL cache.
+            expires = now + timedelta(minutes=50)
+            with _token_lock:
+                _cached_token = access
+                _cached_token_expires = expires
+            return access
+    except Exception as exc:
+        errors.append(f"interactive: {exc}")
+
     mode = azure_auth_mode()
-    if mode == "cli":
+    if mode in ("cli", "interactive"):
         # Prefer Azure CLI so the agent uses the interactive user who ran `az login`
         # (no app-registration IAM required if that user can already view metrics).
         try:
             credential = AzureCliCredential()
             token = credential.get_token("https://management.azure.com/.default")
-        except Exception:
-            credential = DefaultAzureCredential(exclude_interactive_browser_credential=True)
-            token = credential.get_token("https://management.azure.com/.default")
+        except Exception as exc:
+            errors.append(f"cli: {exc}")
+            try:
+                credential = DefaultAzureCredential(exclude_interactive_browser_credential=True)
+                token = credential.get_token("https://management.azure.com/.default")
+            except Exception as exc2:
+                errors.append(f"default: {exc2}")
     else:
-        if not azure_credentials_configured():
-            raise RuntimeError("Azure client_secret credentials are not configured in .env")
-        credential = ClientSecretCredential(
-            tenant_id=settings.azure_tenant_id.strip(),
-            client_id=settings.azure_client_id.strip(),
-            client_secret=settings.azure_client_secret.strip(),
+        if not (
+            settings.azure_tenant_id.strip()
+            and settings.azure_client_id.strip()
+            and settings.azure_client_secret.strip()
+        ):
+            detail = "; ".join(errors) if errors else "no credentials"
+            raise RuntimeError(
+                "Azure credentials are not configured. Sign in on the Azure page, "
+                f"or set client_secret in .env. ({detail})"
+            )
+        try:
+            credential = ClientSecretCredential(
+                tenant_id=settings.azure_tenant_id.strip(),
+                client_id=settings.azure_client_id.strip(),
+                client_secret=settings.azure_client_secret.strip(),
+            )
+            token = credential.get_token("https://management.azure.com/.default")
+        except Exception as exc:
+            errors.append(f"client_secret: {exc}")
+
+    if token is None:
+        raise RuntimeError(
+            "Failed to get Azure access token. Sign in on the Azure page. "
+            + ("; ".join(errors) if errors else "")
         )
-        token = credential.get_token("https://management.azure.com/.default")
 
     expires = datetime.fromtimestamp(token.expires_on, tz=timezone.utc)
     with _token_lock:
@@ -257,9 +317,18 @@ def fetch_vm_cpu_memory(resource_id: str) -> dict[str, float | None]:
 
 def diagnose_azure_monitor(targets: list[dict[str, str]] | None = None) -> dict[str, Any]:
     """Safe diagnostics for Config UI — never returns secrets."""
+    signed_in = False
+    try:
+        from app.services.azure_login import is_signed_in
+
+        signed_in = is_signed_in()
+    except Exception:
+        signed_in = False
+
     checks: dict[str, Any] = {
         "credentials_configured": azure_credentials_configured(),
         "auth_mode": azure_auth_mode(),
+        "signed_in": signed_in,
         "tenant_id_set": bool(settings.azure_tenant_id.strip()),
         "client_id_set": bool(settings.azure_client_id.strip()),
         "client_secret_set": bool(settings.azure_client_secret.strip()),
@@ -270,26 +339,19 @@ def diagnose_azure_monitor(targets: list[dict[str, str]] | None = None) -> dict[
         "message": "",
     }
     if not checks["credentials_configured"]:
-        if azure_auth_mode() == "cli":
+        if not checks["subscription_id_set"]:
             checks["message"] = (
-                "AZURE_AUTH_MODE=cli but AZURE_SUBSCRIPTION_ID is missing in .env. "
-                "Also run az login on this machine."
+                "AZURE_SUBSCRIPTION_ID is missing in .env. Set it in the project-root .env, "
+                "restart, then sign in on the Azure page."
+            )
+        elif azure_auth_mode() == "cli":
+            checks["message"] = (
+                "AZURE_AUTH_MODE=cli — open the Azure page to sign in, or run az login on this machine."
             )
         else:
-            missing = [
-                name
-                for name, present in (
-                    ("AZURE_TENANT_ID", checks["tenant_id_set"]),
-                    ("AZURE_CLIENT_ID", checks["client_id_set"]),
-                    ("AZURE_CLIENT_SECRET", checks["client_secret_set"]),
-                    ("AZURE_SUBSCRIPTION_ID", checks["subscription_id_set"]),
-                )
-                if not present
-            ]
             checks["message"] = (
-                "Missing Azure keys in backend .env: " + ", ".join(missing)
-                + ". Edit project-root .env then restart so it copies to backend/.env. "
-                "Or set AZURE_AUTH_MODE=cli and run az login if admin will not grant app roles."
+                "Not signed in to Azure. Open the Azure page and sign in with Microsoft, "
+                "or set AZURE_CLIENT_SECRET in .env if using an app registration."
             )
         return checks
 

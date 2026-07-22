@@ -14,7 +14,7 @@ from app.database import SessionLocal, init_db
 from app.services.system_config import get_system_config
 from app.services.run_queue import reconcile_stale_runs, process_run_queue
 from app.services.jmeter_runner import run_manager
-from app.routers import bug_reports, config, hierarchy, notifications, test_runs, websocket
+from app.routers import azure_auth, bug_reports, config, hierarchy, notifications, test_runs, websocket
 from app.services.scheduler import shutdown_scheduler, start_scheduler
 from app.services.update_manager import update_manager
 from app.logging_setup import setup_logging
@@ -96,6 +96,7 @@ app.add_middleware(
 app.include_router(hierarchy.router)
 app.include_router(test_runs.router)
 app.include_router(config.router)
+app.include_router(azure_auth.router)
 app.include_router(notifications.router)
 app.include_router(bug_reports.router)
 app.include_router(websocket.router)
@@ -126,6 +127,7 @@ if _frontend_dist.is_dir():
     @app.get("/scenarios")
     @app.get("/compare")
     @app.get("/config")
+    @app.get("/azure")
     async def spa_routes():
         return FileResponse(_frontend_dist / "index.html")
 

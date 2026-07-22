@@ -10,3 +10,4 @@ websockets==14.1
 psutil>=7.0.0
 azure-identity>=1.19.0
 azure-core>=1.30.0
+msal-extensions>=1.2.0

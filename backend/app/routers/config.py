@@ -21,6 +21,7 @@ from app.schemas import (
 )
 from app.services.archive import archive_test_run, auto_archive_old_runs, restore_test_run
 from app.services.azure_monitor import azure_credentials_configured, diagnose_azure_monitor
+from app.services.azure_login import is_signed_in
 from app.services.system_config import (
     get_enabled_azure_targets,
     get_system_config,
@@ -56,6 +57,7 @@ def _to_config_out(cfg) -> SystemConfigOut:
         ),
         azure_monitor_resource_group=str(getattr(cfg, "azure_monitor_resource_group", "") or ""),
         azure_credentials_configured=azure_credentials_configured(),
+        azure_signed_in=is_signed_in(),
         jmeter_found=(jmeter_path / "bin" / "jmeter.bat").is_file(),
         updated_at=cfg.updated_at,
     )

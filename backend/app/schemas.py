@@ -475,6 +475,7 @@ class SystemConfigOut(BaseModel):
     azure_monitor_sample_interval_seconds: int = 10
     azure_monitor_resource_group: str = ""
     azure_credentials_configured: bool = False
+    azure_signed_in: bool = False
     jmeter_found: bool
     updated_at: datetime | None = None
 
@@ -527,6 +528,8 @@ class AzureMonitorProbeTarget(BaseModel):
 
 class AzureMonitorProbeOut(BaseModel):
     credentials_configured: bool
+    auth_mode: str = "client_secret"
+    signed_in: bool = False
     tenant_id_set: bool
     client_id_set: bool
     client_secret_set: bool

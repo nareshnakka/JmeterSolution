@@ -198,7 +198,7 @@ if errorlevel 1 (
 )
 
 echo Installing Azure Monitor packages...
-"%VENV_PY%" -m pip install --upgrade "azure-identity>=1.19.0" "azure-core>=1.30.0"
+"%VENV_PY%" -m pip install --upgrade "azure-identity>=1.19.0" "azure-core>=1.30.0" "msal-extensions>=1.2.0"
 if errorlevel 1 (
   echo ERROR: Failed to install Azure Monitor packages.
   exit /b 1
