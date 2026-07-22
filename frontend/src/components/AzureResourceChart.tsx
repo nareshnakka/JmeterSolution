@@ -109,25 +109,26 @@ function AzureResourceChart({
       defaultExpanded={hasData}
     >
       {hasData ? (
-        <div style={{ width: '100%', height: 280 }}>
-          <ResponsiveContainer>
+        <div className="chart-wrap">
+          <ResponsiveContainer width="100%" height={280}>
             <LineChart data={chartData} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
               <CartesianGrid stroke={chartTheme.grid} strokeDasharray="3 3" />
               <XAxis
                 dataKey="t"
                 type="number"
-                domain={timeline.domain}
-                ticks={timeline.ticks}
-                tickFormatter={timeline.tickFormatter}
                 stroke={chartTheme.axis}
+                domain={['dataMin', 'dataMax']}
+                tickFormatter={(t) => timeline.formatValue(Number(t))}
+                label={{ value: timeline.axisLabel, position: 'insideBottom', offset: -5 }}
               />
               <YAxis domain={[0, 100]} unit="%" stroke={chartTheme.axis} width={42} />
               <Tooltip
-                labelFormatter={(v) => timeline.tickFormatter(Number(v))}
-                formatter={(value: number | null, name: string) => [
-                  value == null ? '—' : `${value}%`,
-                  name,
-                ]}
+                labelFormatter={(v) => timeline.formatValue(Number(v))}
+                formatter={(value) => {
+                  if (value == null || value === '') return ['—', '']
+                  const n = typeof value === 'number' ? value : Number(value)
+                  return [Number.isFinite(n) ? `${n}%` : '—', '']
+                }}
               />
               <Legend />
               {serverNames.map((name, i) => (
@@ -161,7 +162,7 @@ function AzureResourceChart({
       ) : (
         <p className="empty">
           {isRunning
-            ? 'Collecting Azure CPU/Memory samples… (enable Azure Monitor in Configuration)'
+            ? 'Collecting Azure CPU/Memory samples… Enable Azure Monitor in Configuration'
             : 'No Azure server metrics stored for this run'}
         </p>
       )}
