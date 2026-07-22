@@ -140,20 +140,20 @@ if errorlevel 1 (
 REM Explicit Azure Monitor dependency so updates never skip it if requirements drift.
 python -m pip install --upgrade "azure-identity>=1.19.0"
 if errorlevel 1 (
-  echo ERROR: Failed to install azure-identity (required for Azure CPU/Memory monitoring).
+  echo ERROR: Failed to install azure-identity - required for Azure CPU/Memory monitoring.
   popd
   popd
   exit /b 1
 )
-REM Avoid parentheses inside python -c — CMD treats ) specially and throws:
-REM   ". was unexpected at this time."
-python -c "import azure.identity as _ai; v=getattr(_ai,'__version__',None); print('Azure identity OK:', v if v else 'installed')"
+REM Keep this line free of parentheses - CMD IF-block parsing breaks on ).
+python -c "import azure.identity"
 if errorlevel 1 (
   echo ERROR: azure-identity import check failed after install.
   popd
   popd
   exit /b 1
 )
+echo Azure identity package verified.
 popd
 
 if exist "%ROOT%\.env" (
