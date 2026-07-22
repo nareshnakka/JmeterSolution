@@ -28,6 +28,8 @@ from app.schemas import (
     BuildOut,
     ReleaseCreate,
     ReleaseOut,
+    ScenarioDeleteRequest,
+    ScenarioDeleteResult,
     ScenarioFileOut,
     ScenarioListItem,
     ScenarioOut,
@@ -50,6 +52,8 @@ from app.services.storage import (
     scenario_scripts_dir,
     scenario_uploads_dir,
 )
+
+from app.utils.datetime_utils import utc_now
 
 router = APIRouter(prefix="/api", tags=["hierarchy"])
 
@@ -133,12 +137,25 @@ async def _save_scenario_files(
 
 def _unique_scenario_name(db: Session, application_id: int, source_name: str) -> str:
     base = f"Clone_{source_name}"
-    if not db.query(Scenario).filter(Scenario.application_id == application_id, Scenario.name == base).first():
+
+    def _name_taken(name: str) -> bool:
+        return (
+            db.query(Scenario)
+            .filter(
+                Scenario.application_id == application_id,
+                Scenario.name == name,
+                Scenario.deleted_at.is_(None),
+            )
+            .first()
+            is not None
+        )
+
+    if not _name_taken(base):
         return base
     n = 2
     while True:
         candidate = f"Clone_{source_name}_{n}"
-        if not db.query(Scenario).filter(Scenario.application_id == application_id, Scenario.name == candidate).first():
+        if not _name_taken(candidate):
             return candidate
         n += 1
 
@@ -298,6 +315,7 @@ def list_all_scenarios(
             .joinedload(Application.build)
             .joinedload(Build.release)
         )
+        .filter(Scenario.deleted_at.is_(None))
         .order_by(Scenario.created_at.desc())
         .all()
     )
@@ -424,7 +442,7 @@ def _schedule_to_out(schedule: ScenarioSchedule) -> ScenarioScheduleOut:
 @router.get("/scenarios/{scenario_id}/schedule", response_model=ScenarioScheduleOut | None)
 def get_scenario_schedule(scenario_id: int, db: Session = Depends(get_db)):
     scenario = db.get(Scenario, scenario_id)
-    if not scenario:
+    if not scenario or getattr(scenario, "deleted_at", None) is not None:
         raise HTTPException(404, "Scenario not found")
     schedule = (
         db.query(ScenarioSchedule)
@@ -443,7 +461,7 @@ def create_scenario_schedule_route(
     db: Session = Depends(get_db),
 ):
     scenario = db.get(Scenario, scenario_id)
-    if not scenario:
+    if not scenario or getattr(scenario, "deleted_at", None) is not None:
         raise HTTPException(404, "Scenario not found")
     try:
         frequency = ScheduleFrequency(body.frequency)
@@ -522,6 +540,8 @@ def _scenario_context(db: Session, scenario_id: int):
     scenario = db.get(Scenario, scenario_id)
     if not scenario:
         raise HTTPException(404, "Scenario not found")
+    if getattr(scenario, "deleted_at", None) is not None:
+        raise HTTPException(404, "Scenario not found")
     app = db.get(Application, scenario.application_id)
     build = db.get(Build, app.build_id)
     release = db.get(Release, build.release_id)
@@ -529,6 +549,9 @@ def _scenario_context(db: Session, scenario_id: int):
 
 
 def _ensure_scenario_editable(db: Session, scenario_id: int) -> None:
+    scenario = db.get(Scenario, scenario_id)
+    if not scenario or getattr(scenario, "deleted_at", None) is not None:
+        raise HTTPException(404, "Scenario not found")
     active = (
         db.query(TestRun)
         .filter(
@@ -541,12 +564,81 @@ def _ensure_scenario_editable(db: Session, scenario_id: int) -> None:
         raise HTTPException(409, "Cannot edit scenario while a test is running")
 
 
+def _soft_delete_scenario(db: Session, scenario: Scenario) -> None:
+    """Hide scenario from UI lists; keep DB row and all test run results."""
+    if getattr(scenario, "deleted_at", None) is not None:
+        return
+    active = (
+        db.query(TestRun)
+        .filter(
+            TestRun.scenario_id == scenario.id,
+            TestRun.status.in_([TestRunStatus.RUNNING, TestRunStatus.PENDING]),
+        )
+        .first()
+    )
+    if active:
+        raise HTTPException(
+            409,
+            f'Cannot delete "{scenario.name}" while a test is running or queued',
+        )
+    for schedule in (
+        db.query(ScenarioSchedule)
+        .filter(ScenarioSchedule.scenario_id == scenario.id, ScenarioSchedule.is_active.is_(True))
+        .all()
+    ):
+        deactivate_scenario_schedule(db, schedule)
+    scenario.deleted_at = utc_now()
+
+
 @router.get("/scenarios/{scenario_id}", response_model=ScenarioOut)
 def get_scenario(scenario_id: int, db: Session = Depends(get_db)):
     scenario = db.get(Scenario, scenario_id)
-    if not scenario:
+    if not scenario or getattr(scenario, "deleted_at", None) is not None:
         raise HTTPException(404, "Scenario not found")
     return scenario
+
+
+@router.post("/scenarios/delete", response_model=ScenarioDeleteResult)
+def delete_scenarios(body: ScenarioDeleteRequest, db: Session = Depends(get_db)):
+    """Soft-delete scenarios. Test run results are retained and stay linked."""
+    deleted: list[int] = []
+    failed: list[dict] = []
+    for scenario_id in body.scenario_ids:
+        scenario = db.get(Scenario, scenario_id)
+        if not scenario:
+            failed.append({"id": scenario_id, "name": None, "error": "Scenario not found"})
+            continue
+        if getattr(scenario, "deleted_at", None) is not None:
+            failed.append({"id": scenario_id, "name": scenario.name, "error": "Already deleted"})
+            continue
+        try:
+            _soft_delete_scenario(db, scenario)
+            deleted.append(scenario_id)
+        except HTTPException as exc:
+            failed.append(
+                {
+                    "id": scenario_id,
+                    "name": scenario.name,
+                    "error": str(exc.detail),
+                }
+            )
+    if deleted:
+        db.commit()
+    parts: list[str] = []
+    if deleted:
+        parts.append(f"Deleted {len(deleted)} scenario(s). Test run results were kept.")
+    if failed:
+        parts.append(f"{len(failed)} could not be deleted.")
+    return ScenarioDeleteResult(
+        deleted=deleted,
+        failed=failed,
+        message=" ".join(parts) or "No scenarios deleted.",
+    )
+
+
+@router.delete("/scenarios/{scenario_id}", response_model=ScenarioDeleteResult)
+def delete_scenario(scenario_id: int, db: Session = Depends(get_db)):
+    return delete_scenarios(ScenarioDeleteRequest(scenario_ids=[scenario_id]), db)
 
 
 @router.post("/scenarios/{scenario_id}/clone", response_model=ScenarioOut, status_code=201)
@@ -650,7 +742,12 @@ def delete_scenario_file(scenario_id: int, file_id: int, db: Session = Depends(g
 
 @router.get("/applications/{app_id}/scenarios", response_model=list[ScenarioOut])
 def list_scenarios(app_id: int, db: Session = Depends(get_db)):
-    return db.query(Scenario).filter(Scenario.application_id == app_id).order_by(Scenario.created_at.desc()).all()
+    return (
+        db.query(Scenario)
+        .filter(Scenario.application_id == app_id, Scenario.deleted_at.is_(None))
+        .order_by(Scenario.created_at.desc())
+        .all()
+    )
 
 
 @router.post("/applications/{app_id}/scenarios", response_model=ScenarioOut, status_code=201)

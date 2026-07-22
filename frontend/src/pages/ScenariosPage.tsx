@@ -30,6 +30,10 @@ export default function ScenariosPage() {
   const [scenarios, setScenarios] = useState<ScenarioListItem[]>([])
   const [loading, setLoading] = useState(false)
   const [actionId, setActionId] = useState<number | null>(null)
+  const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [deleteStep, setDeleteStep] = useState<0 | 1 | 2>(0)
+  const [deleteConfirmText, setDeleteConfirmText] = useState('')
+  const [deleting, setDeleting] = useState(false)
 
   const [release, setRelease] = useState('')
   const [build, setBuild] = useState('')
@@ -61,6 +65,14 @@ export default function ScenariosPage() {
         last_run_status: lastRunStatus || undefined,
       })
       setScenarios(data)
+      setSelected((prev) => {
+        const ids = new Set(data.map((s) => s.id))
+        const next = new Set<number>()
+        for (const id of prev) {
+          if (ids.has(id)) next.add(id)
+        }
+        return next
+      })
     } catch (e) {
       console.error(e)
     } finally {
@@ -171,6 +183,68 @@ export default function ScenariosPage() {
     setLastRunStatus('')
   }
 
+  const allSelected = scenarios.length > 0 && scenarios.every((s) => selected.has(s.id))
+  const selectedScenarios = scenarios.filter((s) => selected.has(s.id))
+
+  function toggleOne(id: number) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function toggleAll() {
+    if (allSelected) {
+      setSelected(new Set())
+      return
+    }
+    setSelected(new Set(scenarios.map((s) => s.id)))
+  }
+
+  function openDeleteConfirm() {
+    if (selected.size === 0) {
+      toast.info('Select at least one scenario to delete')
+      return
+    }
+    setDeleteConfirmText('')
+    setDeleteStep(1)
+  }
+
+  function closeDeleteConfirm() {
+    if (deleting) return
+    setDeleteStep(0)
+    setDeleteConfirmText('')
+  }
+
+  async function confirmDeleteScenarios() {
+    const ids = Array.from(selected)
+    if (ids.length === 0) return
+    setDeleting(true)
+    try {
+      const result = await api.deleteScenarios(ids)
+      if (result.deleted.length) {
+        toast.success(result.message || `Deleted ${result.deleted.length} scenario(s). Results kept.`)
+      }
+      for (const fail of result.failed) {
+        toast.error(
+          fail.name
+            ? `"${fail.name}": ${fail.error}`
+            : `Scenario #${fail.id}: ${fail.error}`,
+        )
+      }
+      setSelected(new Set())
+      setDeleteStep(0)
+      setDeleteConfirmText('')
+      await loadScenarios()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to delete scenarios')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   return (
     <>
       <h1 className="page-title">All Scenarios</h1>
@@ -179,7 +253,17 @@ export default function ScenariosPage() {
         <div className="table-toolbar">
           <span className="table-toolbar-count">
             {loading ? 'Loading…' : `${scenarios.length} scenario(s)`}
+            {selected.size > 0 ? ` · ${selected.size} selected` : ''}
           </span>
+          <button
+            type="button"
+            className="btn btn-danger"
+            disabled={selected.size === 0 || deleting}
+            onClick={openDeleteConfirm}
+            title="Delete selected scenarios (test run results are kept)"
+          >
+            Delete Selected ({selected.size})
+          </button>
           <Link to="/queue" className="btn btn-secondary">
             View queue
           </Link>
@@ -191,6 +275,15 @@ export default function ScenariosPage() {
           <table className="table-with-filters">
             <thead>
               <tr>
+                <th style={{ width: 36 }}>
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={toggleAll}
+                    title="Select all visible"
+                    aria-label="Select all visible scenarios"
+                  />
+                </th>
                 <th>Release</th>
                 <th>Build</th>
                 <th>Application</th>
@@ -204,6 +297,7 @@ export default function ScenariosPage() {
                 <th>Actions</th>
               </tr>
               <tr className="table-filter-row">
+                <th />
                 <th>
                   <input
                     className="table-filter-input"
@@ -291,7 +385,15 @@ export default function ScenariosPage() {
             </thead>
             <tbody>
               {scenarios.map((s) => (
-                <tr key={s.id}>
+                <tr key={s.id} className={selected.has(s.id) ? 'selected' : ''}>
+                  <td onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      checked={selected.has(s.id)}
+                      onChange={() => toggleOne(s.id)}
+                      aria-label={`Select ${s.name}`}
+                    />
+                  </td>
                   <td>{s.release_name}</td>
                   <td>{s.build_name}</td>
                   <td>{s.application_name}</td>
@@ -447,6 +549,87 @@ export default function ScenariosPage() {
         }}
         onConfirm={runScenario}
       />
+
+      {deleteStep > 0 && (
+        <div className="modal-overlay" onClick={closeDeleteConfirm}>
+          <div className="modal-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480 }}>
+            <div className="modal-header">
+              <h2>{deleteStep === 1 ? 'Delete scenarios?' : 'Confirm deletion'}</h2>
+              <button type="button" className="modal-close" onClick={closeDeleteConfirm} disabled={deleting}>
+                ×
+              </button>
+            </div>
+            {deleteStep === 1 ? (
+              <>
+                <p className="modal-subtitle">
+                  You are about to remove <strong>{selected.size}</strong> scenario
+                  {selected.size === 1 ? '' : 's'} from the list:
+                </p>
+                <ul className="modal-file-list" style={{ maxHeight: 160, overflow: 'auto' }}>
+                  {selectedScenarios.slice(0, 12).map((s) => (
+                    <li key={s.id}>
+                      {s.name}
+                      <span style={{ color: 'var(--muted)' }}>
+                        {' '}
+                        ({s.release_name} / {s.build_name})
+                      </span>
+                    </li>
+                  ))}
+                  {selectedScenarios.length > 12 ? (
+                    <li>…and {selectedScenarios.length - 12} more</li>
+                  ) : null}
+                </ul>
+                <p className="config-hint config-ok" style={{ marginTop: '0.75rem' }}>
+                  Test run results for these scenarios will be kept. You can still open them from Test Runs.
+                </p>
+                <div className="modal-actions">
+                  <button type="button" className="btn btn-secondary" onClick={closeDeleteConfirm}>
+                    Cancel
+                  </button>
+                  <button type="button" className="btn btn-danger" onClick={() => setDeleteStep(2)}>
+                    Continue
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="modal-subtitle">
+                  This cannot be undone from the UI. Type <strong>DELETE</strong> to confirm.
+                </p>
+                <div className="form-row">
+                  <label htmlFor="scenario-delete-confirm">Confirmation</label>
+                  <input
+                    id="scenario-delete-confirm"
+                    value={deleteConfirmText}
+                    onChange={(e) => setDeleteConfirmText(e.target.value)}
+                    placeholder="DELETE"
+                    autoComplete="off"
+                    disabled={deleting}
+                  />
+                </div>
+                <div className="modal-actions">
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => setDeleteStep(1)}
+                    disabled={deleting}
+                  >
+                    Back
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-danger"
+                    disabled={deleting || deleteConfirmText.trim().toUpperCase() !== 'DELETE'}
+                    onClick={() => void confirmDeleteScenarios()}
+                  >
+                    {deleting ? 'Deleting…' : `Delete ${selected.size} scenario(s)`}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </>
   )
 }

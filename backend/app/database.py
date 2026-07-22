@@ -191,6 +191,10 @@ def _migrate_schema() -> None:
         if "jmeter_properties" not in scenario_cols:
             with engine.begin() as conn:
                 conn.execute(text("ALTER TABLE scenarios ADD COLUMN jmeter_properties TEXT"))
+        if "deleted_at" not in scenario_cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE scenarios ADD COLUMN deleted_at DATETIME"))
+                logger.info("Added scenarios.deleted_at")
 
 
 def init_db():

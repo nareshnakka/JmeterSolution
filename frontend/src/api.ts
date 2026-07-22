@@ -97,6 +97,16 @@ export const api = {
   },
   stopScenario: (scenarioId: number) =>
     request<{ ok: boolean; test_run_id: number }>(`/scenarios/${scenarioId}/stop`, { method: 'POST' }),
+  deleteScenarios: (scenarioIds: number[]) =>
+    request<{
+      deleted: number[]
+      failed: { id: number; name?: string | null; error: string }[]
+      message: string
+    }>('/scenarios/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scenario_ids: scenarioIds }),
+    }),
   getScenario: (scenarioId: number) =>
     request<import('./types').Scenario>(`/scenarios/${scenarioId}`),
   cloneScenario: (scenarioId: number) =>

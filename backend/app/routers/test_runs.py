@@ -269,7 +269,7 @@ def get_test_run(run_id: int, db: Session = Depends(get_db)):
 @router.post("", response_model=TestRunOut, status_code=201)
 async def start_adhoc_run(body: TestRunCreate, db: Session = Depends(get_db)):
     scenario = db.get(Scenario, body.scenario_id)
-    if not scenario:
+    if not scenario or getattr(scenario, "deleted_at", None) is not None:
         raise HTTPException(404, "Scenario not found")
 
     run = TestRun(
@@ -290,7 +290,7 @@ async def start_adhoc_run(body: TestRunCreate, db: Session = Depends(get_db)):
 @router.post("/schedule", response_model=TestRunOut, status_code=201)
 def schedule_run(body: TestRunSchedule, db: Session = Depends(get_db)):
     scenario = db.get(Scenario, body.scenario_id)
-    if not scenario:
+    if not scenario or getattr(scenario, "deleted_at", None) is not None:
         raise HTTPException(404, "Scenario not found")
     if body.scheduled_at <= utc_now():
         raise HTTPException(400, "scheduled_at must be in the future")

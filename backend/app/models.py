@@ -87,6 +87,8 @@ class Scenario(Base):
     description: Mapped[str | None] = mapped_column(Text)
     jmeter_properties_json: Mapped[str | None] = mapped_column("jmeter_properties", Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    # Soft-delete: hide from lists but keep row so test run results stay linked.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     application: Mapped["Application"] = relationship(back_populates="scenarios")
     files: Mapped[list["ScenarioFile"]] = relationship(back_populates="scenario", cascade="all, delete-orphan")

@@ -124,6 +124,22 @@ class ScenarioFileOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ScenarioDeleteRequest(BaseModel):
+    scenario_ids: list[int] = Field(min_length=1, max_length=200)
+
+
+class ScenarioDeleteFailure(BaseModel):
+    id: int
+    name: str | None = None
+    error: str
+
+
+class ScenarioDeleteResult(BaseModel):
+    deleted: list[int] = Field(default_factory=list)
+    failed: list[ScenarioDeleteFailure] = Field(default_factory=list)
+    message: str = ""
+
+
 class ScenarioListItem(BaseModel):
     id: int
     name: str
