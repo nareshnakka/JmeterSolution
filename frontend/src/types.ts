@@ -166,6 +166,7 @@ export interface AzureMonitorTarget {
 
 export interface AzureVmSample {
   cpu_percent?: number | null
+  cpu_max_percent?: number | null
   memory_percent?: number | null
 }
 
@@ -193,6 +194,7 @@ export interface AzureMonitorProbe {
   targets_tested: {
     name: string
     cpu_percent?: number | null
+    cpu_max_percent?: number | null
     memory_percent?: number | null
     error?: string | null
   }[]
@@ -232,6 +234,7 @@ export interface AzureLiveMetrics {
   servers: {
     name: string
     cpu_percent?: number | null
+    cpu_max_percent?: number | null
     memory_percent?: number | null
     error?: string | null
   }[]

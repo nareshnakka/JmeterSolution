@@ -142,15 +142,15 @@ describe('buildAggregateRepoWorkbook', () => {
           {
             t: 0,
             servers: {
-              VM1: { cpu_percent: 40, memory_percent: 20 },
-              VM2: { cpu_percent: 60, memory_percent: 30 },
+              VM1: { cpu_percent: 40, cpu_max_percent: 55, memory_percent: 20 },
+              VM2: { cpu_percent: 60, cpu_max_percent: 80, memory_percent: 30 },
             },
           },
           {
             t: 10,
             servers: {
-              VM1: { cpu_percent: 50, memory_percent: 22 },
-              VM2: { cpu_percent: 70, memory_percent: 34 },
+              VM1: { cpu_percent: 50, cpu_max_percent: 70, memory_percent: 22 },
+              VM2: { cpu_percent: 70, cpu_max_percent: 90, memory_percent: 34 },
             },
           },
         ],
@@ -164,21 +164,20 @@ describe('buildAggregateRepoWorkbook', () => {
     const values: (string | number)[] = []
     sheet.eachRow((row) => {
       const label = row.getCell(1).value
-      if (typeof label === 'string' && label.includes('Avg')) {
+      if (typeof label === 'string' && (label.includes('Avg') || label.includes('Max'))) {
         labels.push(label)
         const v = row.getCell(2).value
         if (typeof v === 'number' || typeof v === 'string') values.push(v)
       }
     })
     expect(labels).toContain('VM1 Avg CPU (%)')
+    expect(labels).toContain('VM1 Max CPU (%)')
     expect(labels).toContain('VM1 Avg Memory (%)')
     expect(labels).toContain('VM2 Avg CPU (%)')
-    expect(labels).toContain('VM2 Avg Memory (%)')
-    expect(labels).toContain('Azure Total Avg CPU (%)')
-    expect(labels).toContain('Azure Total Avg Memory (%)')
+    expect(labels).toContain('VM2 Max CPU (%)')
+    expect(labels).toContain('Azure Total Max CPU (%)')
     expect(values).toContain(45) // VM1 cpu avg
-    expect(values).toContain(21) // VM1 mem avg
-    expect(values).toContain(65) // VM2 cpu avg
-    expect(values).toContain(32) // VM2 mem avg
+    expect(values).toContain(70) // VM1 cpu max peak
+    expect(values).toContain(90) // total/VM2 max peak
   })
 })

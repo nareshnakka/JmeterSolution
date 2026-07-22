@@ -260,6 +260,12 @@ export async function buildAggregateRepoWorkbook(
     writeMetaRow(
       sheet,
       row++,
+      `${server.name} Max CPU (%)`,
+      server.cpuMax != null ? server.cpuMax : '',
+    )
+    writeMetaRow(
+      sheet,
+      row++,
       `${server.name} Avg Memory (%)`,
       server.memAvg != null ? server.memAvg : '',
     )
@@ -270,6 +276,12 @@ export async function buildAggregateRepoWorkbook(
       row++,
       'Azure Total Avg CPU (%)',
       azureAvgs.totalCpu != null ? azureAvgs.totalCpu : '',
+    )
+    writeMetaRow(
+      sheet,
+      row++,
+      'Azure Total Max CPU (%)',
+      azureAvgs.totalCpuMax != null ? azureAvgs.totalCpuMax : '',
     )
     writeMetaRow(
       sheet,

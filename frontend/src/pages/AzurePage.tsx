@@ -228,7 +228,8 @@ export default function AzurePage() {
                 <thead>
                   <tr>
                     <th>Server</th>
-                    <th>CPU %</th>
+                    <th>CPU Avg %</th>
+                    <th>CPU Max %</th>
                     <th>Memory %</th>
                   </tr>
                 </thead>
@@ -237,6 +238,7 @@ export default function AzurePage() {
                     <tr key={s.name}>
                       <td>{s.name}</td>
                       <td>{s.cpu_percent != null ? s.cpu_percent : '—'}</td>
+                      <td>{s.cpu_max_percent != null ? s.cpu_max_percent : '—'}</td>
                       <td>{s.memory_percent != null ? s.memory_percent : '—'}</td>
                     </tr>
                   ))}

@@ -63,7 +63,11 @@ def test_save_and_load_azure_resources(tmp_path: Path):
             "t": 0.0,
             "recorded_at": datetime.utcnow().isoformat(),
             "servers": {
-                "PQSQCVAL2022N01": {"cpu_percent": 12.5, "memory_percent": 44.0},
+                "PQSQCVAL2022N01": {
+                    "cpu_percent": 12.5,
+                    "cpu_max_percent": 28.0,
+                    "memory_percent": 44.0,
+                },
             },
         }
     ]

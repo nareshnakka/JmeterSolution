@@ -504,6 +504,7 @@ class SystemConfigUpdate(BaseModel):
 
 class AzureVmSample(BaseModel):
     cpu_percent: float | None = None
+    cpu_max_percent: float | None = None
     memory_percent: float | None = None
 
 
@@ -522,6 +523,7 @@ class AzureResourcesOut(BaseModel):
 class AzureMonitorProbeTarget(BaseModel):
     name: str
     cpu_percent: float | None = None
+    cpu_max_percent: float | None = None
     memory_percent: float | None = None
     error: str | None = None
 

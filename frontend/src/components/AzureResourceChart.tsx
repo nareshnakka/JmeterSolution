@@ -15,6 +15,7 @@ import type { AzureResources } from '../types'
 import { downsamplePoints } from '../utils/chartDownsample'
 import { maxTimeFromPoints, timelineScaleForSeconds } from '../utils/timeline'
 import { chartTheme } from '../utils/chartTheme'
+import { computeAzureResourceAverages } from '../utils/azureResourceAverages'
 
 const COLORS = ['#0f766e', '#b45309', '#7c3aed', '#be123c', '#0369a1', '#4d7c0f']
 
@@ -25,20 +26,16 @@ interface AzureResourceChartProps {
   refreshGeneration?: number
 }
 
-type MetricKind = 'cpu' | 'mem'
+type MetricKind = 'cpu' | 'cpu_max' | 'mem'
 
 function seriesKey(server: string, kind: MetricKind): string {
   return `${server}__${kind}`
 }
 
 function seriesLabel(server: string, kind: MetricKind): string {
-  return `${server} ${kind === 'cpu' ? 'CPU' : 'Mem'}`
-}
-
-function avg(values: number[]): number | null {
-  if (!values.length) return null
-  const sum = values.reduce((a, b) => a + b, 0)
-  return Math.round((sum / values.length) * 10) / 10
+  if (kind === 'cpu') return `${server} CPU Avg`
+  if (kind === 'cpu_max') return `${server} CPU Max`
+  return `${server} Mem`
 }
 
 function AzureResourceChart({
@@ -92,6 +89,7 @@ function AzureResourceChart({
     () =>
       serverNames.flatMap((name) => [
         seriesKey(name, 'cpu'),
+        seriesKey(name, 'cpu_max'),
         seriesKey(name, 'mem'),
       ]),
     [serverNames],
@@ -112,6 +110,7 @@ function AzureResourceChart({
       for (const name of serverNames) {
         const m = s.servers?.[name]
         row[seriesKey(name, 'cpu')] = m?.cpu_percent ?? null
+        row[seriesKey(name, 'cpu_max')] = m?.cpu_max_percent ?? null
         row[seriesKey(name, 'mem')] = m?.memory_percent ?? null
       }
       return row
@@ -124,53 +123,7 @@ function AzureResourceChart({
     [chartData],
   )
 
-  const averages = useMemo(() => {
-    const samples = resources?.samples ?? []
-    const rows = serverNames.map((name) => {
-      const cpuVals: number[] = []
-      const memVals: number[] = []
-      for (const s of samples) {
-        const m = s.servers?.[name]
-        if (m?.cpu_percent != null && Number.isFinite(m.cpu_percent)) cpuVals.push(m.cpu_percent)
-        if (m?.memory_percent != null && Number.isFinite(m.memory_percent)) {
-          memVals.push(m.memory_percent)
-        }
-      }
-      return {
-        name,
-        cpuAvg: avg(cpuVals),
-        memAvg: avg(memVals),
-        sampleCount: Math.max(cpuVals.length, memVals.length),
-      }
-    })
-    const allCpu = rows.flatMap((r) => (r.cpuAvg != null ? [r.cpuAvg] : []))
-    const allMem = rows.flatMap((r) => (r.memAvg != null ? [r.memAvg] : []))
-    // Prefer point-weighted totals across all raw samples.
-    const cpuAll: number[] = []
-    const memAll: number[] = []
-    for (const s of samples) {
-      for (const name of serverNames) {
-        const m = s.servers?.[name]
-        if (m?.cpu_percent != null && Number.isFinite(m.cpu_percent)) cpuAll.push(m.cpu_percent)
-        if (m?.memory_percent != null && Number.isFinite(m.memory_percent)) {
-          memAll.push(m.memory_percent)
-        }
-      }
-    }
-    const durationSec =
-      samples.length >= 2
-        ? Math.max(0, Number(samples[samples.length - 1]?.t ?? 0) - Number(samples[0]?.t ?? 0))
-        : samples.length === 1
-          ? Number(samples[0]?.t ?? 0)
-          : 0
-    return {
-      rows,
-      totalCpu: avg(cpuAll.length ? cpuAll : allCpu),
-      totalMem: avg(memAll.length ? memAll : allMem),
-      durationSec,
-      samplePoints: samples.length,
-    }
-  }, [resources, serverNames])
+  const averages = useMemo(() => computeAzureResourceAverages(resources), [resources])
 
   const latest = resources?.samples?.[resources.samples.length - 1]
   const hasData = chartData.length > 0 && serverNames.length > 0
@@ -182,8 +135,9 @@ function AzureResourceChart({
       const m = latest.servers?.[name]
       if (!m) continue
       const cpu = m.cpu_percent != null ? `${m.cpu_percent}%` : '—'
+      const cpuMax = m.cpu_max_percent != null ? `${m.cpu_max_percent}%` : '—'
       const mem = m.memory_percent != null ? `${m.memory_percent}%` : '—'
-      metaParts.push(`${name}: CPU ${cpu} · Mem ${mem}`)
+      metaParts.push(`${name}: CPU ${cpu} (max ${cpuMax}) · Mem ${mem}`)
     }
   }
 
@@ -213,7 +167,7 @@ function AzureResourceChart({
   const setServerVisible = (server: string, visible: boolean) => {
     setHidden((prev) => {
       const next = new Set(prev)
-      for (const kind of ['cpu', 'mem'] as MetricKind[]) {
+      for (const kind of ['cpu', 'cpu_max', 'mem'] as MetricKind[]) {
         const key = seriesKey(server, kind)
         if (visible) next.delete(key)
         else next.add(key)
@@ -226,7 +180,9 @@ function AzureResourceChart({
   const hideAll = () => setHidden(new Set(allSeriesKeys))
 
   const serverFullyVisible = (server: string) =>
-    !isHidden(seriesKey(server, 'cpu')) && !isHidden(seriesKey(server, 'mem'))
+    !isHidden(seriesKey(server, 'cpu')) &&
+    !isHidden(seriesKey(server, 'cpu_max')) &&
+    !isHidden(seriesKey(server, 'mem'))
 
   const kindFullyVisible = (kind: MetricKind) =>
     serverNames.every((name) => !isHidden(seriesKey(name, kind)))
@@ -266,7 +222,14 @@ function AzureResourceChart({
                 className={`btn btn-secondary btn-sm${kindFullyVisible('cpu') ? ' is-active' : ''}`}
                 onClick={() => setKindVisible('cpu', !kindFullyVisible('cpu'))}
               >
-                CPU
+                CPU Avg
+              </button>
+              <button
+                type="button"
+                className={`btn btn-secondary btn-sm${kindFullyVisible('cpu_max') ? ' is-active' : ''}`}
+                onClick={() => setKindVisible('cpu_max', !kindFullyVisible('cpu_max'))}
+              >
+                CPU Max
               </button>
               <button
                 type="button"
@@ -339,6 +302,24 @@ function AzureResourceChart({
                   )
                 })}
                 {serverNames.map((name, i) => {
+                  const key = seriesKey(name, 'cpu_max')
+                  return (
+                    <Line
+                      key={key}
+                      type="monotone"
+                      dataKey={key}
+                      name={seriesLabel(name, 'cpu_max')}
+                      stroke={COLORS[i % COLORS.length]}
+                      strokeDasharray="2 2"
+                      dot={false}
+                      strokeWidth={1.75}
+                      connectNulls
+                      hide={isHidden(key)}
+                      isAnimationActive={false}
+                    />
+                  )
+                })}
+                {serverNames.map((name, i) => {
                   const key = seriesKey(name, 'mem')
                   return (
                     <Line
@@ -362,7 +343,7 @@ function AzureResourceChart({
 
           <div className="azure-avg-table-wrap">
             <h3 className="azure-avg-title">
-              Average over available duration
+              Average / Max over available duration
               {averages.durationSec > 0 ? ` (${formatDuration(averages.durationSec)})` : ''}
               {averages.samplePoints ? ` · ${averages.samplePoints} sample(s)` : ''}
             </h3>
@@ -371,25 +352,32 @@ function AzureResourceChart({
                 <tr>
                   <th>Server</th>
                   <th>Avg CPU %</th>
+                  <th>Max CPU %</th>
                   <th>Avg Memory %</th>
                   <th>Samples</th>
                 </tr>
               </thead>
               <tbody>
-                {averages.rows.map((row) => (
+                {averages.servers.map((row) => (
                   <tr key={row.name}>
                     <td>{row.name}</td>
                     <td>{row.cpuAvg != null ? row.cpuAvg.toFixed(1) : '—'}</td>
+                    <td>{row.cpuMax != null ? row.cpuMax.toFixed(1) : '—'}</td>
                     <td>{row.memAvg != null ? row.memAvg.toFixed(1) : '—'}</td>
                     <td>{row.sampleCount || '—'}</td>
                   </tr>
                 ))}
                 <tr className="azure-avg-total">
                   <td>
-                    <strong>Total Avg</strong>
+                    <strong>Total</strong>
                   </td>
                   <td>
                     <strong>{averages.totalCpu != null ? averages.totalCpu.toFixed(1) : '—'}</strong>
+                  </td>
+                  <td>
+                    <strong>
+                      {averages.totalCpuMax != null ? averages.totalCpuMax.toFixed(1) : '—'}
+                    </strong>
                   </td>
                   <td>
                     <strong>{averages.totalMem != null ? averages.totalMem.toFixed(1) : '—'}</strong>

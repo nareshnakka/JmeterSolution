@@ -234,7 +234,8 @@ def _http_get_json(url: str, token: str) -> dict[str, Any]:
         return json.loads(resp.read().decode("utf-8"))
 
 
-def _latest_average(payload: dict[str, Any]) -> float | None:
+def _latest_metric_field(payload: dict[str, Any], field: str) -> float | None:
+    """Return the newest non-null aggregation value (average, maximum, …)."""
     values = payload.get("value") or []
     if not values:
         return None
@@ -243,10 +244,14 @@ def _latest_average(payload: dict[str, Any]) -> float | None:
         return None
     data = timeseries[0].get("data") or []
     for point in reversed(data):
-        avg = point.get("average")
-        if avg is not None:
-            return float(avg)
+        raw = point.get(field)
+        if raw is not None:
+            return float(raw)
     return None
+
+
+def _latest_average(payload: dict[str, Any]) -> float | None:
+    return _latest_metric_field(payload, "average")
 
 
 def _metrics_url(
@@ -255,6 +260,7 @@ def _metrics_url(
     metric_names: str,
     metric_namespace: str | None = None,
     minutes: int = 5,
+    aggregation: str = "Average",
 ) -> str:
     end = datetime.now(timezone.utc)
     start = end - timedelta(minutes=minutes)
@@ -262,7 +268,7 @@ def _metrics_url(
     params: dict[str, str] = {
         "api-version": "2023-10-01",
         "metricnames": metric_names,
-        "aggregation": "Average",
+        "aggregation": aggregation,
         "timespan": timespan,
         "interval": "PT1M",
     }
@@ -274,14 +280,23 @@ def _metrics_url(
 
 
 def fetch_vm_cpu_memory(resource_id: str) -> dict[str, float | None]:
-    """Return latest CPU % and Memory % for one VM resource id."""
+    """Return latest Avg CPU %, Max CPU %, and Memory % for one VM resource id."""
     token = _get_access_token()
     cpu: float | None = None
+    cpu_max: float | None = None
     memory: float | None = None
 
     try:
-        cpu_payload = _http_get_json(_metrics_url(resource_id, metric_names=CPU_METRIC), token)
-        cpu = _latest_average(cpu_payload)
+        cpu_payload = _http_get_json(
+            _metrics_url(
+                resource_id,
+                metric_names=CPU_METRIC,
+                aggregation="Average,Maximum",
+            ),
+            token,
+        )
+        cpu = _latest_metric_field(cpu_payload, "average")
+        cpu_max = _latest_metric_field(cpu_payload, "maximum")
     except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
         logger.warning("Azure CPU metric failed for %s: %s", resource_id, exc)
 
@@ -311,6 +326,7 @@ def fetch_vm_cpu_memory(resource_id: str) -> dict[str, float | None]:
 
     return {
         "cpu_percent": round(cpu, 1) if cpu is not None else None,
+        "cpu_max_percent": round(cpu_max, 1) if cpu_max is not None else None,
         "memory_percent": round(memory, 1) if memory is not None else None,
     }
 
@@ -379,6 +395,7 @@ def diagnose_azure_monitor(targets: list[dict[str, str]] | None = None) -> dict[
             {
                 "name": sample_target["name"],
                 "cpu_percent": metrics.get("cpu_percent"),
+                "cpu_max_percent": metrics.get("cpu_max_percent"),
                 "memory_percent": metrics.get("memory_percent"),
                 "error": None,
             }
@@ -392,7 +409,8 @@ def diagnose_azure_monitor(targets: list[dict[str, str]] | None = None) -> dict[
             checks["ok"] = True
             checks["message"] = (
                 f"OK — sample from {sample_target['name']}: "
-                f"CPU={metrics.get('cpu_percent')} Memory={metrics.get('memory_percent')}. "
+                f"CPU avg={metrics.get('cpu_percent')} max={metrics.get('cpu_max_percent')} "
+                f"Memory={metrics.get('memory_percent')}. "
                 "Metrics are collected only while a test run is active."
             )
     except Exception as exc:
@@ -400,6 +418,7 @@ def diagnose_azure_monitor(targets: list[dict[str, str]] | None = None) -> dict[
             {
                 "name": sample_target["name"],
                 "cpu_percent": None,
+                "cpu_max_percent": None,
                 "memory_percent": None,
                 "error": str(exc),
             }
@@ -418,5 +437,9 @@ def sample_configured_targets(targets: list[dict[str, str]]) -> dict[str, dict[s
             result[name] = fetch_vm_cpu_memory(target["resource_id"])
         except Exception as exc:
             logger.warning("Azure sample failed for %s: %s", name, exc)
-            result[name] = {"cpu_percent": None, "memory_percent": None}
+            result[name] = {
+                "cpu_percent": None,
+                "cpu_max_percent": None,
+                "memory_percent": None,
+            }
     return result

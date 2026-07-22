@@ -3,6 +3,8 @@ import type { AzureResources } from '../types'
 export interface AzureServerAverage {
   name: string
   cpuAvg: number | null
+  /** Peak Max CPU % observed across samples (Azure Maximum aggregation). */
+  cpuMax: number | null
   memAvg: number | null
   sampleCount: number
 }
@@ -10,6 +12,8 @@ export interface AzureServerAverage {
 export interface AzureResourceAverages {
   servers: AzureServerAverage[]
   totalCpu: number | null
+  /** Peak Max CPU across all servers/samples. */
+  totalCpuMax: number | null
   totalMem: number | null
   samplePoints: number
   durationSec: number
@@ -21,13 +25,19 @@ function mean(values: number[]): number | null {
   return Math.round((sum / values.length) * 10) / 10
 }
 
-/** Average CPU/Memory % per server over all samples stored for a run. */
+function peak(values: number[]): number | null {
+  if (!values.length) return null
+  return Math.round(Math.max(...values) * 10) / 10
+}
+
+/** Average / Max CPU and Memory % per server over all samples stored for a run. */
 export function computeAzureResourceAverages(
   resources: AzureResources | null | undefined,
 ): AzureResourceAverages {
   const empty: AzureResourceAverages = {
     servers: [],
     totalCpu: null,
+    totalCpuMax: null,
     totalMem: null,
     samplePoints: 0,
     durationSec: 0,
@@ -46,10 +56,14 @@ export function computeAzureResourceAverages(
 
   const servers: AzureServerAverage[] = serverNames.map((name) => {
     const cpuVals: number[] = []
+    const cpuMaxVals: number[] = []
     const memVals: number[] = []
     for (const s of samples) {
       const m = s.servers?.[name]
       if (m?.cpu_percent != null && Number.isFinite(m.cpu_percent)) cpuVals.push(m.cpu_percent)
+      if (m?.cpu_max_percent != null && Number.isFinite(m.cpu_max_percent)) {
+        cpuMaxVals.push(m.cpu_max_percent)
+      }
       if (m?.memory_percent != null && Number.isFinite(m.memory_percent)) {
         memVals.push(m.memory_percent)
       }
@@ -57,17 +71,22 @@ export function computeAzureResourceAverages(
     return {
       name,
       cpuAvg: mean(cpuVals),
+      cpuMax: peak(cpuMaxVals),
       memAvg: mean(memVals),
-      sampleCount: Math.max(cpuVals.length, memVals.length),
+      sampleCount: Math.max(cpuVals.length, cpuMaxVals.length, memVals.length),
     }
   })
 
   const cpuAll: number[] = []
+  const cpuMaxAll: number[] = []
   const memAll: number[] = []
   for (const s of samples) {
     for (const name of serverNames) {
       const m = s.servers?.[name]
       if (m?.cpu_percent != null && Number.isFinite(m.cpu_percent)) cpuAll.push(m.cpu_percent)
+      if (m?.cpu_max_percent != null && Number.isFinite(m.cpu_max_percent)) {
+        cpuMaxAll.push(m.cpu_max_percent)
+      }
       if (m?.memory_percent != null && Number.isFinite(m.memory_percent)) {
         memAll.push(m.memory_percent)
       }
@@ -84,6 +103,7 @@ export function computeAzureResourceAverages(
   return {
     servers,
     totalCpu: mean(cpuAll),
+    totalCpuMax: peak(cpuMaxAll),
     totalMem: mean(memAll),
     samplePoints: samples.length,
     durationSec,

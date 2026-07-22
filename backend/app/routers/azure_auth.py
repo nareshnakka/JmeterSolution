@@ -59,6 +59,7 @@ class AzureLoginSessionOut(BaseModel):
 class AzureLiveMetricServer(BaseModel):
     name: str
     cpu_percent: float | None = None
+    cpu_max_percent: float | None = None
     memory_percent: float | None = None
     error: str | None = None
 
@@ -191,6 +192,7 @@ def azure_live_metrics(db: Session = Depends(get_db)):
                 AzureLiveMetricServer(
                     name=name,
                     cpu_percent=metrics.get("cpu_percent"),
+                    cpu_max_percent=metrics.get("cpu_max_percent"),
                     memory_percent=metrics.get("memory_percent"),
                 )
             )
