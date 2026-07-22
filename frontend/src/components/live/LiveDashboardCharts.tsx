@@ -226,14 +226,14 @@ export const ResponseTimeChart = memo(function ResponseTimeChart({
       title="Transaction Response Time"
       meta={
         graphMode === 'cumulative'
-          ? `cumulative · every ${refreshIntervalSeconds}s`
+          ? `Total Avg · every ${refreshIntervalSeconds}s`
           : `${selectedLabels.size} selected`
       }
     >
       <p className="dashboard-section-hint">
         {graphMode === 'cumulative'
-          ? `Cumulative response time · refreshes every ${refreshIntervalSeconds}s`
-          : `Refreshes every ${refreshIntervalSeconds}s when transactions are selected`}
+          ? `Total Avg response time (default) · refreshes every ${refreshIntervalSeconds}s`
+          : `Individual selected transactions · refreshes every ${refreshIntervalSeconds}s`}
       </p>
       <div className="toolbar">
         <button type="button" className="btn btn-secondary" onClick={onSelectAll}>Select All</button>
@@ -245,13 +245,19 @@ export const ResponseTimeChart = memo(function ResponseTimeChart({
         >
           Clear Selection
         </button>
-        <button type="button" className="btn" onClick={onGraphSelected} disabled={selectedLabels.size === 0}>
+        <button type="button" className="btn btn-secondary" onClick={onGraphSelected} disabled={selectedLabels.size === 0}>
           Graph Selected
         </button>
-        <button type="button" className="btn" onClick={onCumulativeGraph}>Cumulative Graph</button>
+        <button
+          type="button"
+          className={`btn${graphMode === 'cumulative' ? '' : ' btn-secondary'}`}
+          onClick={onCumulativeGraph}
+        >
+          Total Avg Graph
+        </button>
       </div>
       <div className="chart-wrap">
-        {series.length > 0 ? (
+        {series.length > 0 && series.some((s) => s.points.length > 0) ? (
           <ResponsiveContainer width="100%" height={280}>
             <LineChart>
               <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
@@ -286,8 +292,8 @@ export const ResponseTimeChart = memo(function ResponseTimeChart({
         ) : (
           <p className="empty">
             {graphMode === 'cumulative'
-              ? 'Waiting for response time data…'
-              : 'Select transaction(s) to view response time graph'}
+              ? 'Waiting for Total Avg response time data…'
+              : 'Select transaction(s) and click Graph Selected'}
           </p>
         )}
       </div>

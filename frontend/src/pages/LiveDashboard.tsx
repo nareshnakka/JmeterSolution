@@ -526,12 +526,14 @@ export default function LiveDashboard() {
     let cancelled = false
     const kick = () => {
       if (cancelled) return
+      // Default: always plot Total Avg (cumulative) unless user chose individual labels.
       if (graphMode === 'cumulative') {
         void loadGraph(true)
       } else if (selectedLabels.size > 0) {
         void loadGraph(false)
       } else {
-        setGraphData([])
+        // No selection in individual mode — fall back to Total Avg so the chart is never empty by default.
+        void loadGraph(true)
       }
     }
     kick()
@@ -798,13 +800,12 @@ export default function LiveDashboard() {
 
   const clearSelection = useCallback(() => {
     setSelectedLabels(new Set())
-    if (graphMode !== 'cumulative') {
-      setGraphData([])
-    }
+    // Return to default Total Avg graph when clearing selection.
+    setGraphMode('cumulative')
     if (errorsGraphMode !== 'all') {
       setErrorsGraphData([])
     }
-  }, [errorsGraphMode, graphMode])
+  }, [errorsGraphMode])
 
   async function stopTest() {
     if (!isRunning || stopping) return

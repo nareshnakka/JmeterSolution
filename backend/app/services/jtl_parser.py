@@ -561,18 +561,60 @@ class MetricsAggregator:
         max_t = self._test_window_end_seconds()
         return [p for p in points if float(p.get("t", 0)) <= max_t + 0.001]
 
+    def _total_avg_graph_labels(self) -> list[str]:
+        """Labels included in the default Total Avg response-time graph.
+
+        Matches Aggregate Report Total Avg: transaction rows only, excluding Login/Log_In.
+        """
+        labels: list[str] = []
+        for metric in self.transaction_metrics():
+            kind = getattr(metric, "kind", "transaction") or "transaction"
+            if kind == "request":
+                continue
+            low = (metric.label or "").lower()
+            if "login" in low or "log_in" in low:
+                continue
+            labels.append(metric.label)
+        return labels
+
     def label_graph(
         self,
         labels: list[str] | None = None,
         cumulative: bool = False,
     ) -> dict[str, Any]:
-        """Return time-series avg response time for selected labels."""
-        if labels is None or "ALL" in labels:
-            target_labels = list(self.label_time_series.keys())
-            cumulative = True
-        else:
-            target_labels = labels
+        """Return time-series avg response time for selected labels.
 
+        cumulative / labels containing ALL → single ``Total Avg`` series (sample-weighted
+        mean across included transactions per time bucket).
+        """
+        want_total_avg = cumulative or labels is None or "ALL" in (labels or [])
+        if want_total_avg:
+            target_labels = self._total_avg_graph_labels()
+            # Fallback: if classification yields nothing yet, use all label series.
+            if not target_labels:
+                target_labels = list(self.label_time_series.keys())
+            by_bucket: dict[int, list[float]] = defaultdict(list)
+            for label in target_labels:
+                for b in self.label_time_series.get(label, []):
+                    bucket = int(b.get("bucket", 0))
+                    vals = b.get("elapsed") or []
+                    if vals:
+                        by_bucket[bucket].extend(vals)
+            window_end = self._test_window_end_seconds()
+            points = []
+            for bucket in sorted(by_bucket):
+                t = self._bucket_time(bucket)
+                if t > window_end + 0.001:
+                    continue
+                vals = by_bucket[bucket]
+                points.append({"t": t, "avg_ms": round(statistics.mean(vals), 2) if vals else 0})
+            return {
+                "mode": "cumulative",
+                "series": [{"label": "Total Avg", "points": points}],
+                "test_window_end": round(window_end, 1),
+            }
+
+        target_labels = labels or []
         series: list[dict[str, Any]] = []
         for label in target_labels:
             buckets = self.label_time_series.get(label, [])
@@ -582,22 +624,7 @@ class MetricsAggregator:
                     continue
                 vals = b["elapsed"]
                 points.append({"t": b["t"], "avg_ms": round(statistics.mean(vals), 2) if vals else 0})
-            series.append({"label": label, "points": points})
-
-        if cumulative and len(series) > 1:
-            by_t: dict[float, list[float]] = defaultdict(list)
-            for s in series:
-                for p in s["points"]:
-                    by_t[p["t"]].append(p["avg_ms"])
-            merged = [{"t": t, "avg_ms": round(statistics.mean(v), 2)} for t, v in sorted(by_t.items())]
-            return {
-                "mode": "cumulative",
-                "series": [{"label": "ALL", "points": self._cap_graph_time(merged)}],
-                "test_window_end": round(self._test_window_end_seconds(), 1),
-            }
-
-        for s in series:
-            s["points"] = self._cap_graph_time(s["points"])
+            series.append({"label": label, "points": self._cap_graph_time(points)})
         return {
             "mode": "individual",
             "series": series,

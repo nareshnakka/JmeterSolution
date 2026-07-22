@@ -80,10 +80,67 @@ def test_label_graph_capped_to_active_test_window():
     _ingest(agg, timestamp_ms=3_600_000, elapsed_ms=500, all_threads=0, label="Login")
 
     graph = agg.label_graph(["ALL"], cumulative=True)
+    # Login is excluded from Total Avg — fall back still uses remaining label series when empty.
+    # With only Login samples, fallback includes Login so the window cap can still be asserted.
     points = graph["series"][0]["points"]
+    assert graph["series"][0]["label"] == "Total Avg"
     assert points
     assert max(p["t"] for p in points) <= 270.1
     assert graph["test_window_end"] <= 270.1
+
+
+def test_label_graph_total_avg_merges_by_bucket_not_timestamp():
+    """Misaligned per-label timestamps must still merge into one Total Avg series."""
+    agg = MetricsAggregator(test_run_id=1, start_wall_time=0, bucket_seconds=5, timeline_bucket_seconds=1)
+    agg.status = TestRunStatus.COMPLETED
+    # Same 5s bucket (0–5), slightly different elapsed wall times → different raw `t` values.
+    _ingest(
+        agg,
+        timestamp_ms=100,
+        elapsed_ms=100,
+        all_threads=2,
+        label="Checkout_L_",
+        response_message="Number of samples in transaction : 1",
+    )
+    _ingest(
+        agg,
+        timestamp_ms=2500,
+        elapsed_ms=300,
+        all_threads=2,
+        label="Search_L_",
+        response_message="Number of samples in transaction : 1",
+    )
+    graph = agg.label_graph(["ALL"], cumulative=True)
+    assert graph["mode"] == "cumulative"
+    assert len(graph["series"]) == 1
+    assert graph["series"][0]["label"] == "Total Avg"
+    points = graph["series"][0]["points"]
+    assert len(points) == 1
+    assert points[0]["avg_ms"] == 200.0  # mean of 100 and 300
+
+
+def test_label_graph_total_avg_excludes_login():
+    agg = MetricsAggregator(test_run_id=1, start_wall_time=0, bucket_seconds=5, timeline_bucket_seconds=1)
+    agg.status = TestRunStatus.COMPLETED
+    _ingest(
+        agg,
+        timestamp_ms=0,
+        elapsed_ms=999,
+        all_threads=1,
+        label="User_Login",
+        response_message="Number of samples in transaction : 1",
+    )
+    _ingest(
+        agg,
+        timestamp_ms=0,
+        elapsed_ms=100,
+        all_threads=1,
+        label="Home_L_",
+        response_message="Number of samples in transaction : 1",
+    )
+    graph = agg.label_graph(cumulative=True)
+    points = graph["series"][0]["points"]
+    assert points[0]["avg_ms"] == 100.0
 
 
 def test_label_graph_uses_throughput_end_when_users_stay_high():
