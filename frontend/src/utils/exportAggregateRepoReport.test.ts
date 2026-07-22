@@ -65,17 +65,22 @@ describe('buildAggregateRepoWorkbook', () => {
     expect(sheet.getCell('B1').isMerged).toBe(true)
     expect(sheet.getCell('B1').alignment?.horizontal).toBe('center')
 
-    expect(sheet.getCell('A13').value).toBe('Label')
-    expect(sheet.getCell('B13').value).toBe('Samples')
-    expect(sheet.getCell('C13').value).toBe('Response Time')
+    let headerRow = 0
+    sheet.eachRow((row, rowNumber) => {
+      if (row.getCell(1).value === 'Label') headerRow = rowNumber
+    })
+    expect(headerRow).toBeGreaterThan(0)
+    expect(sheet.getCell(headerRow, 1).value).toBe('Label')
+    expect(sheet.getCell(headerRow, 2).value).toBe('Samples')
+    expect(sheet.getCell(headerRow, 3).value).toBe('Response Time')
 
-    expect(sheet.getCell('A14').value).toBe('AAB_L_Dashboard')
-    expect(sheet.getCell('B14').value).toBe(1132)
-    expect(sheet.getCell('C14').value).toBe(3758)
+    expect(sheet.getCell(headerRow + 1, 1).value).toBe('AAB_L_Dashboard')
+    expect(sheet.getCell(headerRow + 1, 2).value).toBe(1132)
+    expect(sheet.getCell(headerRow + 1, 3).value).toBe(3758)
     // No solid fill — data bars are conditional formatting
-    expect(sheet.getCell('C14').fill).toBeUndefined()
-    expect(sheet.getCell('C15').value).toBe(5127)
-    expect(sheet.getCell('C15').fill).toBeUndefined()
+    expect(sheet.getCell(headerRow + 1, 3).fill).toBeUndefined()
+    expect(sheet.getCell(headerRow + 2, 3).value).toBe(5127)
+    expect(sheet.getCell(headerRow + 2, 3).fill).toBeUndefined()
 
     const rules = (sheet as unknown as { conditionalFormattings?: { ref: string; rules: { type: string }[] }[] })
       .conditionalFormattings
@@ -119,5 +124,61 @@ describe('buildAggregateRepoWorkbook', () => {
       if (typeof v === 'string' && (v === 'Keep' || v === 'Skip')) labels.push(v)
     })
     expect(labels).toEqual(['Keep'])
+  })
+
+  it('includes Azure server Avg CPU and Memory in the summary', async () => {
+    const rows = [tx('Home_L_', 200, 10)]
+    const workbook = await buildAggregateRepoWorkbook(rows, {
+      run: null,
+      metrics: null,
+      config: DEFAULT_AGGREGATE_SUMMARY_CONFIG,
+      azureResources: {
+        interval_seconds: 10,
+        targets: [
+          { name: 'VM1', resource_id: '/r1' },
+          { name: 'VM2', resource_id: '/r2' },
+        ],
+        samples: [
+          {
+            t: 0,
+            servers: {
+              VM1: { cpu_percent: 40, memory_percent: 20 },
+              VM2: { cpu_percent: 60, memory_percent: 30 },
+            },
+          },
+          {
+            t: 10,
+            servers: {
+              VM1: { cpu_percent: 50, memory_percent: 22 },
+              VM2: { cpu_percent: 70, memory_percent: 34 },
+            },
+          },
+        ],
+      },
+    })
+    const sheet = workbook.getWorksheet('Repo Report')
+    expect(sheet).toBeTruthy()
+    if (!sheet) return
+
+    const labels: string[] = []
+    const values: (string | number)[] = []
+    sheet.eachRow((row) => {
+      const label = row.getCell(1).value
+      if (typeof label === 'string' && label.includes('Avg')) {
+        labels.push(label)
+        const v = row.getCell(2).value
+        if (typeof v === 'number' || typeof v === 'string') values.push(v)
+      }
+    })
+    expect(labels).toContain('VM1 Avg CPU (%)')
+    expect(labels).toContain('VM1 Avg Memory (%)')
+    expect(labels).toContain('VM2 Avg CPU (%)')
+    expect(labels).toContain('VM2 Avg Memory (%)')
+    expect(labels).toContain('Azure Total Avg CPU (%)')
+    expect(labels).toContain('Azure Total Avg Memory (%)')
+    expect(values).toContain(45) // VM1 cpu avg
+    expect(values).toContain(21) // VM1 mem avg
+    expect(values).toContain(65) // VM2 cpu avg
+    expect(values).toContain(32) // VM2 mem avg
   })
 })

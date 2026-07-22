@@ -1,9 +1,10 @@
 import type ExcelJS from 'exceljs'
-import type { LiveMetrics, TestRun, TransactionMetric } from '../types'
+import type { AzureResources, LiveMetrics, TestRun, TransactionMetric } from '../types'
 import {
   computeAggregateSummaryAvgs,
   type AggregateSummaryConfig,
 } from './aggregateSummaryAvgs'
+import { computeAzureResourceAverages } from './azureResourceAverages'
 import { filterTransactionsByKind } from './transactionKind'
 
 export interface RepoReportMeta {
@@ -11,6 +12,8 @@ export interface RepoReportMeta {
   metrics: LiveMetrics | null
   config: AggregateSummaryConfig
   scenarioDetails?: string[]
+  /** Azure Monitor samples for this run (CPU/Memory averages in the summary). */
+  azureResources?: AzureResources | null
 }
 
 /** A = labels, B = samples/values, C = response time (with Excel data bars). */
@@ -245,6 +248,36 @@ export async function buildAggregateRepoWorkbook(
     'Average Submit Response time',
     submitAvg != null ? Math.round(submitAvg) : ''
   )
+
+  const azureAvgs = computeAzureResourceAverages(meta.azureResources)
+  for (const server of azureAvgs.servers) {
+    writeMetaRow(
+      sheet,
+      row++,
+      `${server.name} Avg CPU (%)`,
+      server.cpuAvg != null ? server.cpuAvg : '',
+    )
+    writeMetaRow(
+      sheet,
+      row++,
+      `${server.name} Avg Memory (%)`,
+      server.memAvg != null ? server.memAvg : '',
+    )
+  }
+  if (azureAvgs.servers.length > 1) {
+    writeMetaRow(
+      sheet,
+      row++,
+      'Azure Total Avg CPU (%)',
+      azureAvgs.totalCpu != null ? azureAvgs.totalCpu : '',
+    )
+    writeMetaRow(
+      sheet,
+      row++,
+      'Azure Total Avg Memory (%)',
+      azureAvgs.totalMem != null ? azureAvgs.totalMem : '',
+    )
+  }
 
   row++ // blank separator
 

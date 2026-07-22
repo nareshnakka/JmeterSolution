@@ -702,6 +702,12 @@ export default function LiveDashboard() {
     toast.info('Preparing Excel report…')
     try {
       const allRows = metrics?.transactions ?? []
+      let azureResources: import('../types').AzureResources | null = null
+      try {
+        azureResources = await api.getRunAzureResources(id)
+      } catch {
+        /* optional — export still works without Azure samples */
+      }
       const ok = await downloadAggregateRepoReport({
         transactions: allRows,
         tableRows: sortedTransactions,
@@ -709,6 +715,7 @@ export default function LiveDashboard() {
           run,
           metrics,
           config: aggregateSummaryConfig,
+          azureResources,
         },
         runId: id,
       })
