@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     azure_client_id: str = ""
     azure_client_secret: str = ""
     azure_subscription_id: str = ""
+    # client_secret = app registration (needs Monitoring Reader from admin)
+    # cli = use `az login` on this machine (uses YOUR user permissions — no app IAM needed)
+    azure_auth_mode: str = "client_secret"
 
     @property
     def jmeter_bin(self) -> Path:

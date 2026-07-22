@@ -74,62 +74,83 @@ $tenant = $envMap["AZURE_TENANT_ID"]
 $clientId = $envMap["AZURE_CLIENT_ID"]
 $secret = $envMap["AZURE_CLIENT_SECRET"]
 $subId = $envMap["AZURE_SUBSCRIPTION_ID"]
+$authMode = if ($envMap["AZURE_AUTH_MODE"]) { $envMap["AZURE_AUTH_MODE"].Trim().ToLowerInvariant() } else { "client_secret" }
+if ($authMode -in @("cli", "azure_cli", "default")) { $authMode = "cli" } else { $authMode = "client_secret" }
 
+Write-Host "AZURE_AUTH_MODE        : $authMode"
 Write-Host "AZURE_TENANT_ID        : $(Mask-Value $tenant)"
 Write-Host "AZURE_CLIENT_ID        : $(Mask-Value $clientId)"
 Write-Host "AZURE_CLIENT_SECRET    : $(Mask-Value $secret)"
 Write-Host "AZURE_SUBSCRIPTION_ID  : $(Mask-Value $subId)"
 Write-Host ""
 
-$missing = @()
-if ([string]::IsNullOrWhiteSpace($tenant)) { $missing += "AZURE_TENANT_ID" }
-if ([string]::IsNullOrWhiteSpace($clientId)) { $missing += "AZURE_CLIENT_ID" }
-if ([string]::IsNullOrWhiteSpace($secret)) { $missing += "AZURE_CLIENT_SECRET" }
-if ([string]::IsNullOrWhiteSpace($subId)) { $missing += "AZURE_SUBSCRIPTION_ID" }
-
-if ($missing.Count -gt 0) {
-  Write-Host "FAIL: Missing keys: $($missing -join ', ')" -ForegroundColor Red
-  Write-Host "Add them to project-root .env, then restart JMeter Agent."
+if ([string]::IsNullOrWhiteSpace($subId)) {
+  Write-Host "FAIL: AZURE_SUBSCRIPTION_ID is missing." -ForegroundColor Red
   exit 1
 }
 
-Write-Host "[1/3] Requesting access token from login.microsoftonline.com ..."
-$tokenBody = @{
-  grant_type    = "client_credentials"
-  client_id     = $clientId
-  client_secret = $secret
-  scope         = "https://management.azure.com/.default"
-}
+$accessToken = $null
+$expiresIn = $null
 
-try {
-  $tokenResp = Invoke-RestMethod `
-    -Method Post `
-    -Uri "https://login.microsoftonline.com/$tenant/oauth2/v2.0/token" `
-    -ContentType "application/x-www-form-urlencoded" `
-    -Body $tokenBody
-} catch {
-  Write-Host "FAIL: Token request failed." -ForegroundColor Red
-  Write-Host $_.Exception.Message
-  if ($_.ErrorDetails -and $_.ErrorDetails.Message) {
-    Write-Host $_.ErrorDetails.Message
+if ($authMode -eq "cli") {
+  Write-Host "[1/3] Getting token via Azure CLI (az account get-access-token) ..."
+  try {
+    $azJson = az account get-access-token --resource https://management.azure.com -o json 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "$azJson" }
+    $azTok = $azJson | ConvertFrom-Json
+    $accessToken = $azTok.accessToken
+    Write-Host "OK: Token from Azure CLI (user/session auth)" -ForegroundColor Green
+  } catch {
+    Write-Host "FAIL: Azure CLI token failed. Run: az login" -ForegroundColor Red
+    Write-Host $_
+    exit 1
   }
-  Write-Host ""
-  Write-Host "Common causes:"
-  Write-Host "  - Wrong tenant / client id / secret"
-  Write-Host "  - Secret expired or you copied Secret ID instead of Value"
-  exit 1
-}
+} else {
+  $missing = @()
+  if ([string]::IsNullOrWhiteSpace($tenant)) { $missing += "AZURE_TENANT_ID" }
+  if ([string]::IsNullOrWhiteSpace($clientId)) { $missing += "AZURE_CLIENT_ID" }
+  if ([string]::IsNullOrWhiteSpace($secret)) { $missing += "AZURE_CLIENT_SECRET" }
+  if ($missing.Count -gt 0) {
+    Write-Host "FAIL: Missing keys: $($missing -join ', ')" -ForegroundColor Red
+    Write-Host "Or set AZURE_AUTH_MODE=cli and run az login (no app IAM needed)."
+    exit 1
+  }
 
-if (-not $tokenResp.access_token) {
-  Write-Host "FAIL: No access_token in response." -ForegroundColor Red
-  exit 1
-}
+  Write-Host "[1/3] Requesting access token from login.microsoftonline.com ..."
+  $tokenBody = @{
+    grant_type    = "client_credentials"
+    client_id     = $clientId
+    client_secret = $secret
+    scope         = "https://management.azure.com/.default"
+  }
 
-Write-Host "OK: Access token received (expires_in=$($tokenResp.expires_in)s)" -ForegroundColor Green
+  try {
+    $tokenResp = Invoke-RestMethod `
+      -Method Post `
+      -Uri "https://login.microsoftonline.com/$tenant/oauth2/v2.0/token" `
+      -ContentType "application/x-www-form-urlencoded" `
+      -Body $tokenBody
+  } catch {
+    Write-Host "FAIL: Token request failed." -ForegroundColor Red
+    Write-Host $_.Exception.Message
+    if ($_.ErrorDetails -and $_.ErrorDetails.Message) {
+      Write-Host $_.ErrorDetails.Message
+    }
+    exit 1
+  }
+
+  if (-not $tokenResp.access_token) {
+    Write-Host "FAIL: No access_token in response." -ForegroundColor Red
+    exit 1
+  }
+  $accessToken = $tokenResp.access_token
+  $expiresIn = $tokenResp.expires_in
+  Write-Host "OK: Access token received (expires_in=${expiresIn}s)" -ForegroundColor Green
+}
 
 Write-Host ""
 Write-Host "[2/3] Checking subscription access ..."
-$headers = @{ Authorization = "Bearer $($tokenResp.access_token)" }
+$headers = @{ Authorization = "Bearer $accessToken" }
 try {
   $sub = Invoke-RestMethod `
     -Method Get `

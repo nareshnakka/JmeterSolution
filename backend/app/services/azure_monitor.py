@@ -28,13 +28,71 @@ MEMORY_GUEST_NAMESPACE = "Azure.VM.Windows.GuestMetrics"
 MEMORY_HOST_METRIC = "Available Memory Percentage"
 
 
+def azure_auth_mode() -> str:
+    mode = (settings.azure_auth_mode or "client_secret").strip().lower()
+    if mode in ("cli", "azure_cli", "default"):
+        return "cli"
+    return "client_secret"
+
+
 def azure_credentials_configured() -> bool:
+    if not settings.azure_subscription_id.strip():
+        return False
+    if azure_auth_mode() == "cli":
+        return True
     return bool(
         settings.azure_tenant_id.strip()
         and settings.azure_client_id.strip()
         and settings.azure_client_secret.strip()
-        and settings.azure_subscription_id.strip()
     )
+
+
+def _get_access_token() -> str:
+    global _cached_token, _cached_token_expires
+    now = datetime.now(timezone.utc)
+    with _token_lock:
+        if (
+            _cached_token
+            and _cached_token_expires
+            and _cached_token_expires > now + timedelta(minutes=2)
+        ):
+            return _cached_token
+
+    if not settings.azure_subscription_id.strip():
+        raise RuntimeError("AZURE_SUBSCRIPTION_ID is not set in .env")
+
+    try:
+        from azure.identity import AzureCliCredential, ClientSecretCredential, DefaultAzureCredential
+    except ImportError as exc:
+        raise RuntimeError(
+            "azure-identity is not installed. Run: pip install azure-identity"
+        ) from exc
+
+    mode = azure_auth_mode()
+    if mode == "cli":
+        # Prefer Azure CLI so the agent uses the interactive user who ran `az login`
+        # (no app-registration IAM required if that user can already view metrics).
+        try:
+            credential = AzureCliCredential()
+            token = credential.get_token("https://management.azure.com/.default")
+        except Exception:
+            credential = DefaultAzureCredential(exclude_interactive_browser_credential=True)
+            token = credential.get_token("https://management.azure.com/.default")
+    else:
+        if not azure_credentials_configured():
+            raise RuntimeError("Azure client_secret credentials are not configured in .env")
+        credential = ClientSecretCredential(
+            tenant_id=settings.azure_tenant_id.strip(),
+            client_id=settings.azure_client_id.strip(),
+            client_secret=settings.azure_client_secret.strip(),
+        )
+        token = credential.get_token("https://management.azure.com/.default")
+
+    expires = datetime.fromtimestamp(token.expires_on, tz=timezone.utc)
+    with _token_lock:
+        _cached_token = token.token
+        _cached_token_expires = expires
+    return token.token
 
 
 def build_vm_resource_id(
@@ -101,40 +159,6 @@ def parse_azure_targets(raw: str | None) -> list[dict[str, str]]:
 def serialize_azure_targets(targets: list[dict[str, str]]) -> str:
     clean = parse_azure_targets(json.dumps(targets))
     return json.dumps(clean, indent=2)
-
-
-def _get_access_token() -> str:
-    global _cached_token, _cached_token_expires
-    now = datetime.now(timezone.utc)
-    with _token_lock:
-        if (
-            _cached_token
-            and _cached_token_expires
-            and _cached_token_expires > now + timedelta(minutes=2)
-        ):
-            return _cached_token
-
-    if not azure_credentials_configured():
-        raise RuntimeError("Azure credentials are not configured in .env")
-
-    try:
-        from azure.identity import ClientSecretCredential
-    except ImportError as exc:
-        raise RuntimeError(
-            "azure-identity is not installed. Run: pip install azure-identity"
-        ) from exc
-
-    credential = ClientSecretCredential(
-        tenant_id=settings.azure_tenant_id.strip(),
-        client_id=settings.azure_client_id.strip(),
-        client_secret=settings.azure_client_secret.strip(),
-    )
-    token = credential.get_token("https://management.azure.com/.default")
-    expires = datetime.fromtimestamp(token.expires_on, tz=timezone.utc)
-    with _token_lock:
-        _cached_token = token.token
-        _cached_token_expires = expires
-    return token.token
 
 
 def _http_get_json(url: str, token: str) -> dict[str, Any]:
@@ -235,6 +259,7 @@ def diagnose_azure_monitor(targets: list[dict[str, str]] | None = None) -> dict[
     """Safe diagnostics for Config UI — never returns secrets."""
     checks: dict[str, Any] = {
         "credentials_configured": azure_credentials_configured(),
+        "auth_mode": azure_auth_mode(),
         "tenant_id_set": bool(settings.azure_tenant_id.strip()),
         "client_id_set": bool(settings.azure_client_id.strip()),
         "client_secret_set": bool(settings.azure_client_secret.strip()),
@@ -245,20 +270,27 @@ def diagnose_azure_monitor(targets: list[dict[str, str]] | None = None) -> dict[
         "message": "",
     }
     if not checks["credentials_configured"]:
-        missing = [
-            name
-            for name, present in (
-                ("AZURE_TENANT_ID", checks["tenant_id_set"]),
-                ("AZURE_CLIENT_ID", checks["client_id_set"]),
-                ("AZURE_CLIENT_SECRET", checks["client_secret_set"]),
-                ("AZURE_SUBSCRIPTION_ID", checks["subscription_id_set"]),
+        if azure_auth_mode() == "cli":
+            checks["message"] = (
+                "AZURE_AUTH_MODE=cli but AZURE_SUBSCRIPTION_ID is missing in .env. "
+                "Also run az login on this machine."
             )
-            if not present
-        ]
-        checks["message"] = (
-            "Missing Azure keys in backend .env: " + ", ".join(missing)
-            + ". Edit project-root .env then restart so it copies to backend/.env."
-        )
+        else:
+            missing = [
+                name
+                for name, present in (
+                    ("AZURE_TENANT_ID", checks["tenant_id_set"]),
+                    ("AZURE_CLIENT_ID", checks["client_id_set"]),
+                    ("AZURE_CLIENT_SECRET", checks["client_secret_set"]),
+                    ("AZURE_SUBSCRIPTION_ID", checks["subscription_id_set"]),
+                )
+                if not present
+            ]
+            checks["message"] = (
+                "Missing Azure keys in backend .env: " + ", ".join(missing)
+                + ". Edit project-root .env then restart so it copies to backend/.env. "
+                "Or set AZURE_AUTH_MODE=cli and run az login if admin will not grant app roles."
+            )
         return checks
 
     try:
