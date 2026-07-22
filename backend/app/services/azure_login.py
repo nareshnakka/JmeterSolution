@@ -15,8 +15,9 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Microsoft's well-known public client used by Azure CLI — works for device-code without
-# enabling "Allow public client flows" on a custom app registration.
+# Microsoft's well-known public client used by Azure CLI — already authorized for
+# https://management.azure.com. Do NOT use a custom app registration (e.g. jmeter-server-agent)
+# for device-code login: those apps often only have Microsoft Graph and cause AADSTS650057.
 _AZURE_CLI_PUBLIC_CLIENT_ID = "04b07795-8ddb-461a-bbee-02f9e1bf7b46"
 _SCOPE = "https://management.azure.com/.default"
 _CACHE_NAME = "jmeterAgentAzure"
@@ -38,7 +39,12 @@ def _account_meta_path() -> Path:
 
 
 def interactive_client_id() -> str:
-    return (settings.azure_client_id or "").strip() or _AZURE_CLI_PUBLIC_CLIENT_ID
+    """Always use Azure CLI's public client for in-app sign-in (ARM scope works out of the box).
+
+    AZURE_CLIENT_ID in .env is for client_secret / app-registration mode only — using it for
+    device code causes AADSTS650057 when the app lacks Azure Service Management permission.
+    """
+    return _AZURE_CLI_PUBLIC_CLIENT_ID
 
 
 def interactive_tenant_id() -> str:

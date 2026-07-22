@@ -27,5 +27,7 @@ def test_clear_login_removes_files(monkeypatch, tmp_path: Path):
 
 
 def test_interactive_client_id_defaults_to_azure_cli(monkeypatch):
-    monkeypatch.setattr(azure_login.settings, "azure_client_id", "")
+    # Even if a confidential app client id is configured, interactive login must not use it
+    # (avoids AADSTS650057 when the app only has Microsoft Graph).
+    monkeypatch.setattr(azure_login.settings, "azure_client_id", "52872d20-0dde-4299-ab17-18c424de0a02")
     assert azure_login.interactive_client_id() == "04b07795-8ddb-461a-bbee-02f9e1bf7b46"
