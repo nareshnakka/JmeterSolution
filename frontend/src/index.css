@@ -1592,6 +1592,69 @@ tfoot .aggregate-total-row:hover td {
   color: var(--text);
 }
 
+.azure-metric-toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0.5rem 0 0.75rem;
+}
+
+.azure-metric-toggle-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.65rem;
+}
+
+.azure-metric-toggle-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  min-width: 4.5rem;
+}
+
+.azure-metric-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.azure-metric-toggles .btn-sm {
+  padding: 0.2rem 0.55rem;
+  font-size: 0.75rem;
+}
+
+.azure-metric-toggles .btn-sm.is-active {
+  border-color: var(--accent, #0f766e);
+  color: var(--accent, #0f766e);
+}
+
+.azure-avg-table-wrap {
+  margin-top: 0.75rem;
+}
+
+.azure-avg-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin: 0 0 0.5rem;
+  color: var(--text);
+}
+
+.azure-avg-table td,
+.azure-avg-table th {
+  white-space: nowrap;
+}
+
+.azure-avg-total td {
+  border-top: 2px solid var(--border, #d4d4d8);
+  background: var(--surface-2, rgba(0, 0, 0, 0.03));
+}
+
 /* Toast notifications */
 .toast-container {
   position: fixed;
