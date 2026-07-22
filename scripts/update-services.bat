@@ -145,7 +145,9 @@ if errorlevel 1 (
   popd
   exit /b 1
 )
-python -c "import azure.identity; print('Azure identity OK:', getattr(azure.identity, '__version__', 'installed'))"
+REM Avoid parentheses inside python -c — CMD treats ) specially and throws:
+REM   ". was unexpected at this time."
+python -c "import azure.identity as _ai; v=getattr(_ai,'__version__',None); print('Azure identity OK:', v if v else 'installed')"
 if errorlevel 1 (
   echo ERROR: azure-identity import check failed after install.
   popd
