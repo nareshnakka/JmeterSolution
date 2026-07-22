@@ -773,10 +773,15 @@ def download_artifact(
 
 @router.post("/compare", response_model=list[CompareRunSummary])
 def compare_runs(body: CompareRequest, db: Session = Depends(get_db)):
+    if len(body.test_run_ids) < 2:
+        raise HTTPException(400, "Select at least 2 test runs to compare")
+
     summaries: list[CompareRunSummary] = []
+    missing: list[int] = []
     for run_id in body.test_run_ids:
         run = db.get(TestRun, run_id)
         if not run:
+            missing.append(run_id)
             continue
         enriched = _enrich_run(run, db)
         transactions: list[TransactionMetric] = []
@@ -796,4 +801,12 @@ def compare_runs(body: CompareRequest, db: Session = Depends(get_db)):
                 transactions=transactions,
             )
         )
+
+    if missing:
+        raise HTTPException(
+            404,
+            f"Test run(s) not found: {', '.join(str(i) for i in missing)}",
+        )
+    if len(summaries) < 2:
+        raise HTTPException(400, "Need at least 2 valid test runs to compare")
     return summaries

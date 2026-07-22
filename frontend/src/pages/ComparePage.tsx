@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { api } from '../api'
 import CompareResultsTable from '../components/CompareResultsTable'
 import RunTags from '../components/RunTags'
 import TestRunTableFilters from '../components/TestRunTableFilters'
+import { useToast } from '../components/Toast'
 import type { CompareNavigationState, CompareSummary, TestRun, TransactionMetric } from '../types'
 import { isComparableTestRun } from '../types'
 import {
@@ -39,25 +40,78 @@ function toRunMetrics(m: TransactionMetric | undefined): RunMetrics {
 
 export default function ComparePage() {
   const location = useLocation()
+  const toast = useToast()
   const [runs, setRuns] = useState<TestRun[]>([])
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [summaries, setSummaries] = useState<CompareSummary[]>([])
+  const [comparing, setComparing] = useState(false)
   const [runFilters, setRunFilters] = useState<TestRunColumnFilters>(EMPTY_RUN_FILTERS)
   const [transactionFilter, setTransactionFilter] = useState('')
   const [sortField, setSortField] = useState<SortField>('transaction')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
+  const autoCompareKeyRef = useRef<string>('')
 
   useEffect(() => {
-    api.listTestRuns().then(setRuns).catch(console.error)
-  }, [])
+    api
+      .listTestRuns()
+      .then(setRuns)
+      .catch((err) => {
+        console.error(err)
+        toast.error(err instanceof Error ? err.message : 'Failed to load test runs')
+      })
+  }, [toast])
+
+  const runCompare = useCallback(
+    async (ids: number[]) => {
+      if (ids.length < 2) {
+        toast.info('Select at least 2 test runs to compare')
+        return
+      }
+      setComparing(true)
+      try {
+        const data = await api.compareRuns(ids)
+        if (data.length < 2) {
+          toast.error('Could not load comparison data for the selected runs (missing results?)')
+          setSummaries([])
+          return
+        }
+        const emptyMetrics = data.every((s) => !s.transactions?.length)
+        if (emptyMetrics) {
+          toast.error(
+            'Selected runs have no transaction metrics. Results JTL may be missing or archived.',
+          )
+        }
+        setSummaries(data)
+        setTransactionFilter('')
+        setSortField('transaction')
+        setSortDir('asc')
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Compare failed')
+        setSummaries([])
+      } finally {
+        setComparing(false)
+      }
+    },
+    [toast],
+  )
 
   useEffect(() => {
     const state = location.state as CompareNavigationState | null
-    if (state?.selectedRunIds?.length) {
-      setSelected(new Set(state.selectedRunIds))
-      setSummaries([])
+    const ids = state?.selectedRunIds?.filter((id) => Number.isFinite(id)) ?? []
+    if (!ids.length) return
+
+    const key = ids.join(',')
+    if (autoCompareKeyRef.current === key) return
+    autoCompareKeyRef.current = key
+
+    setSelected(new Set(ids))
+    setSummaries([])
+    if (ids.length >= 2) {
+      void runCompare(ids)
+    } else {
+      toast.info('Select at least 2 completed/failed/stopped runs to compare')
     }
-  }, [location.state])
+  }, [location.state, runCompare, toast])
 
   const comparableRuns = useMemo(() => {
     const base = runs.filter((r) => isComparableTestRun(r.status))
@@ -74,16 +128,7 @@ export default function ComparePage() {
   }
 
   async function compare() {
-    const ids = Array.from(selected)
-    if (ids.length < 2) {
-      alert('Select at least 2 test runs to compare')
-      return
-    }
-    const data = await api.compareRuns(ids)
-    setSummaries(data)
-    setTransactionFilter('')
-    setSortField('transaction')
-    setSortDir('asc')
+    await runCompare(Array.from(selected))
   }
 
   function handleSort(field: SortField) {
@@ -161,8 +206,8 @@ export default function ComparePage() {
               Clear filters
             </button>
           )}
-          <button className="btn" onClick={compare} disabled={selected.size < 2}>
-            Compare Selected ({selected.size})
+          <button className="btn" onClick={() => void compare()} disabled={selected.size < 2 || comparing}>
+            {comparing ? 'Comparing…' : `Compare Selected (${selected.size})`}
           </button>
         </div>
         <div className="table-scroll">
@@ -209,6 +254,12 @@ export default function ComparePage() {
         </div>
         {comparableRuns.length === 0 && <p className="empty">No comparable test runs found</p>}
       </div>
+
+      {comparing && summaries.length < 2 && (
+        <div className="card">
+          <p className="empty">Loading comparison…</p>
+        </div>
+      )}
 
       {summaries.length >= 2 && (
         <div className="card">

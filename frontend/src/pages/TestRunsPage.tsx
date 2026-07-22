@@ -112,8 +112,8 @@ export default function TestRunsPage() {
       const run = runs.find((r) => r.id === id)
       return run && isComparableTestRun(run.status)
     })
-    if (ids.length === 0) {
-      toast.info('Select completed, failed, or stopped runs to compare')
+    if (ids.length < 2) {
+      toast.info('Select at least 2 completed, failed, or stopped runs to compare')
       return
     }
     navigate('/compare', { state: { selectedRunIds: ids } })
@@ -214,8 +214,9 @@ export default function TestRunsPage() {
         <button
           type="button"
           className="btn"
-          disabled={comparableSelectedCount === 0}
+          disabled={comparableSelectedCount < 2}
           onClick={promoteToCompare}
+          title="Select at least 2 completed, failed, or stopped runs"
         >
           Compare Selected ({comparableSelectedCount})
         </button>
