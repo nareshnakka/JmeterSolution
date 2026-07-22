@@ -231,6 +231,90 @@ def fetch_vm_cpu_memory(resource_id: str) -> dict[str, float | None]:
     }
 
 
+def diagnose_azure_monitor(targets: list[dict[str, str]] | None = None) -> dict[str, Any]:
+    """Safe diagnostics for Config UI — never returns secrets."""
+    checks: dict[str, Any] = {
+        "credentials_configured": azure_credentials_configured(),
+        "tenant_id_set": bool(settings.azure_tenant_id.strip()),
+        "client_id_set": bool(settings.azure_client_id.strip()),
+        "client_secret_set": bool(settings.azure_client_secret.strip()),
+        "subscription_id_set": bool(settings.azure_subscription_id.strip()),
+        "token_ok": False,
+        "targets_tested": [],
+        "ok": False,
+        "message": "",
+    }
+    if not checks["credentials_configured"]:
+        missing = [
+            name
+            for name, present in (
+                ("AZURE_TENANT_ID", checks["tenant_id_set"]),
+                ("AZURE_CLIENT_ID", checks["client_id_set"]),
+                ("AZURE_CLIENT_SECRET", checks["client_secret_set"]),
+                ("AZURE_SUBSCRIPTION_ID", checks["subscription_id_set"]),
+            )
+            if not present
+        ]
+        checks["message"] = (
+            "Missing Azure keys in backend .env: " + ", ".join(missing)
+            + ". Edit project-root .env then restart so it copies to backend/.env."
+        )
+        return checks
+
+    try:
+        _get_access_token()
+        checks["token_ok"] = True
+    except Exception as exc:
+        checks["message"] = f"Failed to get Azure access token: {exc}"
+        return checks
+
+    ready = [t for t in (targets or []) if t.get("name") and t.get("resource_id")]
+    if not ready:
+        checks["message"] = (
+            "Credentials OK, but no VMs have a resource ID. "
+            "Set default resource group + Save Azure Settings, or paste full resource IDs."
+        )
+        checks["ok"] = True  # auth works; targets still need config
+        return checks
+
+    # Test first target only to keep the call fast.
+    sample_target = ready[0]
+    try:
+        metrics = fetch_vm_cpu_memory(sample_target["resource_id"])
+        checks["targets_tested"].append(
+            {
+                "name": sample_target["name"],
+                "cpu_percent": metrics.get("cpu_percent"),
+                "memory_percent": metrics.get("memory_percent"),
+                "error": None,
+            }
+        )
+        if metrics.get("cpu_percent") is None and metrics.get("memory_percent") is None:
+            checks["message"] = (
+                f"Auth OK for {sample_target['name']}, but no CPU/Memory values returned. "
+                "Check Monitoring Reader role, resource ID, and VM Insights/AMA for Memory."
+            )
+        else:
+            checks["ok"] = True
+            checks["message"] = (
+                f"OK — sample from {sample_target['name']}: "
+                f"CPU={metrics.get('cpu_percent')} Memory={metrics.get('memory_percent')}. "
+                "Metrics are collected only while a test run is active."
+            )
+    except Exception as exc:
+        checks["targets_tested"].append(
+            {
+                "name": sample_target["name"],
+                "cpu_percent": None,
+                "memory_percent": None,
+                "error": str(exc),
+            }
+        )
+        checks["message"] = f"Auth OK, but metrics call failed for {sample_target['name']}: {exc}"
+
+    return checks
+
+
 def sample_configured_targets(targets: list[dict[str, str]]) -> dict[str, dict[str, float | None]]:
     """Sample CPU/Memory for each configured target. Keys are display names."""
     result: dict[str, dict[str, float | None]] = {}

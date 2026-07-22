@@ -181,6 +181,23 @@ export interface AzureResources {
   samples: AzureResourceSample[]
 }
 
+export interface AzureMonitorProbe {
+  credentials_configured: boolean
+  tenant_id_set: boolean
+  client_id_set: boolean
+  client_secret_set: boolean
+  subscription_id_set: boolean
+  token_ok: boolean
+  targets_tested: {
+    name: string
+    cpu_percent?: number | null
+    memory_percent?: number | null
+    error?: string | null
+  }[]
+  ok: boolean
+  message: string
+}
+
 /** Runs that finished (or were stopped) with results available for comparison. */
 export function isComparableTestRun(status: string): boolean {
   return status === 'completed' || status === 'failed' || status === 'cancelled'

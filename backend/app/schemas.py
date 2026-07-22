@@ -518,6 +518,25 @@ class AzureResourcesOut(BaseModel):
     samples: list[AzureResourceSample] = Field(default_factory=list)
 
 
+class AzureMonitorProbeTarget(BaseModel):
+    name: str
+    cpu_percent: float | None = None
+    memory_percent: float | None = None
+    error: str | None = None
+
+
+class AzureMonitorProbeOut(BaseModel):
+    credentials_configured: bool
+    tenant_id_set: bool
+    client_id_set: bool
+    client_secret_set: bool
+    subscription_id_set: bool
+    token_ok: bool
+    targets_tested: list[AzureMonitorProbeTarget] = Field(default_factory=list)
+    ok: bool
+    message: str
+
+
 class AggregateSummaryConfigUpdate(BaseModel):
     aggregate_total_avg_title: str = Field(default="Total Avg", min_length=1, max_length=128)
     aggregate_total_avg_filter: str = Field(default="", max_length=256)

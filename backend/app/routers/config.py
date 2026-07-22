@@ -14,13 +14,15 @@ from app.schemas import (
     ArchiveRunItem,
     AggregateSummaryConfigUpdate,
     AutoArchiveOut,
+    AzureMonitorProbeOut,
     SystemConfigOut,
     SystemConfigUpdate,
     TestRunDeleteFailure,
 )
 from app.services.archive import archive_test_run, auto_archive_old_runs, restore_test_run
-from app.services.azure_monitor import azure_credentials_configured
+from app.services.azure_monitor import azure_credentials_configured, diagnose_azure_monitor
 from app.services.system_config import (
+    get_enabled_azure_targets,
     get_system_config,
     list_azure_targets_from_config,
     update_aggregate_summary_config,
@@ -63,6 +65,22 @@ def _to_config_out(cfg) -> SystemConfigOut:
 def read_config(db: Session = Depends(get_db)):
     cfg = get_system_config(db)
     return _to_config_out(cfg)
+
+
+@router.post("/azure-monitor/test", response_model=AzureMonitorProbeOut)
+def test_azure_monitor(db: Session = Depends(get_db)):
+    """Probe Azure credentials and one configured VM — for Configuration debugging."""
+    cfg = get_system_config(db)
+    targets = get_enabled_azure_targets(cfg)
+    if not targets:
+        # Still try names with resource_id even if sampling disabled, so config can be verified.
+        targets = [
+            t
+            for t in list_azure_targets_from_config(cfg)
+            if t.get("resource_id")
+        ]
+    result = diagnose_azure_monitor(targets)
+    return AzureMonitorProbeOut.model_validate(result)
 
 
 @router.put("", response_model=SystemConfigOut)

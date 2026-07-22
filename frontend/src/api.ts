@@ -246,6 +246,8 @@ export const api = {
   downloadUrl: (runId: number, file: string) => `/api/test-runs/${runId}/download?file=${encodeURIComponent(file)}`,
 
   getConfig: () => request<import('./types').SystemConfig>('/config'),
+  testAzureMonitor: () =>
+    request<import('./types').AzureMonitorProbe>('/config/azure-monitor/test', { method: 'POST' }),
   saveConfig: (body: {
     jmeter_home: string
     data_root: string

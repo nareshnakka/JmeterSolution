@@ -45,6 +45,8 @@ export default function ConfigPage() {
   const [deletePreview, setDeletePreview] = useState<DeleteByDateResult | null>(null)
   const [deletePreviewing, setDeletePreviewing] = useState(false)
   const [deleteBusy, setDeleteBusy] = useState(false)
+  const [azureTesting, setAzureTesting] = useState(false)
+  const [azureProbeMsg, setAzureProbeMsg] = useState<string | null>(null)
 
   const loadConfig = useCallback(async () => {
     const data = await api.getConfig()
@@ -355,8 +357,43 @@ export default function ConfigPage() {
         <p className={`config-hint ${config?.azure_credentials_configured ? 'config-ok' : 'config-warn'}`}>
           {config?.azure_credentials_configured
             ? 'Azure credentials found in .env (tenant, client, secret, subscription).'
-            : 'Azure credentials missing — set AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_SUBSCRIPTION_ID in .env'}
+            : 'Azure credentials missing — set AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_SUBSCRIPTION_ID in project-root .env, then restart.'}
         </p>
+        {azureProbeMsg ? (
+          <p className={`config-hint ${azureProbeMsg.startsWith('OK') ? 'config-ok' : 'config-warn'}`}>
+            {azureProbeMsg}
+          </p>
+        ) : null}
+        <div className="toolbar" style={{ marginBottom: '0.75rem', gap: '0.5rem' }}>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            disabled={azureTesting}
+            onClick={() => {
+              void (async () => {
+                setAzureTesting(true)
+                setAzureProbeMsg(null)
+                try {
+                  const probe = await api.testAzureMonitor()
+                  setAzureProbeMsg(probe.message)
+                  if (probe.ok && probe.message.startsWith('OK')) {
+                    toast.success(probe.message)
+                  } else {
+                    toast.error(probe.message)
+                  }
+                } catch (err) {
+                  const msg = err instanceof Error ? err.message : 'Azure test failed'
+                  setAzureProbeMsg(msg)
+                  toast.error(msg)
+                } finally {
+                  setAzureTesting(false)
+                }
+              })()
+            }}
+          >
+            {azureTesting ? 'Testing Azure…' : 'Test Azure connection'}
+          </button>
+        </div>
         <div className="config-form-grid">
           <div className="form-row">
             <label htmlFor="azure_rg">Default resource group</label>
