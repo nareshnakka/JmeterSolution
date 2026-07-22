@@ -38,6 +38,7 @@ export default function HierarchyPage() {
   const [scheduleAt, setScheduleAt] = useState('')
   const [startTarget, setStartTarget] = useState<{ id: number; name: string } | null>(null)
   const [starting, setStarting] = useState(false)
+  const [creating, setCreating] = useState(false)
   useEffect(() => {
     api.listReleases().then(setReleases).catch(console.error)
   }, [])
@@ -80,21 +81,30 @@ export default function HierarchyPage() {
   }
 
   async function uploadScenario() {
-    if (!selectedApp || !jmxFiles[0] || !scenarioName.trim()) return
-    const form = new FormData()
-    form.append('name', scenarioName)
-    scenarioTags.forEach((t) => form.append('tags', t))
-    form.append('jmx', jmxFiles[0])
-    dependencyFiles.forEach((f) => form.append('dependencies', f))
-    appendJmeterPropertiesToForm(form, jmeterProperties)
-    const s = await api.createScenario(selectedApp.id, form)
-    setScenarios((prev) => [s, ...prev])
-    toast.success(`Scenario "${s.name}" uploaded successfully`)
-    setScenarioName('')
-    setScenarioTags([])
-    setJmxFiles([])
-    setDependencyFiles([])
-    setJmeterProperties([emptyJmeterProperty()])
+    if (!selectedApp || !jmxFiles[0] || !scenarioName.trim() || creating) return
+    const nameForToast = scenarioName.trim()
+    setCreating(true)
+    toast.info(`Creating scenario "${nameForToast}"…`)
+    try {
+      const form = new FormData()
+      form.append('name', scenarioName.trim())
+      scenarioTags.forEach((t) => form.append('tags', t))
+      form.append('jmx', jmxFiles[0])
+      dependencyFiles.forEach((f) => form.append('dependencies', f))
+      appendJmeterPropertiesToForm(form, jmeterProperties)
+      const s = await api.createScenario(selectedApp.id, form)
+      setScenarios((prev) => [s, ...prev])
+      toast.success(`Scenario "${s.name}" created successfully`)
+      setScenarioName('')
+      setScenarioTags([])
+      setJmxFiles([])
+      setDependencyFiles([])
+      setJmeterProperties([emptyJmeterProperty()])
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to create scenario')
+    } finally {
+      setCreating(false)
+    }
   }
 
   async function runNow(description: string) {
@@ -122,7 +132,9 @@ export default function HierarchyPage() {
   }
 
   async function cloneScenario(scenarioId: number) {
-    if (!selectedApp) return
+    if (!selectedApp || creating) return
+    setCreating(true)
+    toast.info('Cloning scenario…')
     try {
       const cloned = await api.cloneScenario(scenarioId)
       toast.success(`Cloned as "${cloned.name}". Edit it from the Scenarios page to rename.`)
@@ -130,6 +142,8 @@ export default function HierarchyPage() {
       setScenarios(list)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to clone scenario')
+    } finally {
+      setCreating(false)
     }
   }
 
@@ -227,6 +241,16 @@ export default function HierarchyPage() {
         <>
           <div className="card">
             <h2>Upload Scenario — {selectedApp.name}</h2>
+            {creating && (
+              <div className="scenario-create-busy" role="status" aria-live="polite">
+                <span className="dashboard-results-spinner" aria-hidden="true" />
+                <div>
+                  <strong>Creating scenario…</strong>
+                  <span>Uploading JMX and dependencies. Please wait — do not click again.</span>
+                </div>
+              </div>
+            )}
+            <fieldset disabled={creating} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
             <div className="grid-2">
               <div className="form-row">
                 <label>Scenario name</label>
@@ -259,12 +283,28 @@ export default function HierarchyPage() {
             <JmeterPropertiesEditor properties={jmeterProperties} onChange={setJmeterProperties} />
             <button
               className="btn"
-              onClick={uploadScenario}
-              disabled={jmxFiles.length === 0}
-              title={jmxFiles.length === 0 ? 'Select a JMX file first' : undefined}
+              onClick={() => void uploadScenario()}
+              disabled={creating || jmxFiles.length === 0 || !scenarioName.trim()}
+              title={
+                creating
+                  ? 'Creating scenario…'
+                  : jmxFiles.length === 0
+                    ? 'Select a JMX file first'
+                    : !scenarioName.trim()
+                      ? 'Enter a scenario name'
+                      : undefined
+              }
             >
-              Upload Scenario
+              {creating ? (
+                <>
+                  <span className="btn-spinner" aria-hidden="true" />
+                  Creating…
+                </>
+              ) : (
+                'Upload Scenario'
+              )}
             </button>
+            </fieldset>
           </div>
 
           <div className="card">
@@ -296,7 +336,14 @@ export default function HierarchyPage() {
                       </td>
                       <td>{s.jmx_filename}</td>
                       <td>
-                        <button className="btn btn-secondary" style={{ marginRight: '0.5rem' }} onClick={() => cloneScenario(s.id)}>Clone</button>
+                        <button
+                          className="btn btn-secondary"
+                          style={{ marginRight: '0.5rem' }}
+                          disabled={creating}
+                          onClick={() => void cloneScenario(s.id)}
+                        >
+                          {creating ? 'Working…' : 'Clone'}
+                        </button>
                         <button className="btn" style={{ marginRight: '0.5rem' }} onClick={() => setStartTarget({ id: s.id, name: s.name })}>Run Test</button>
                         <input
                           type="datetime-local"

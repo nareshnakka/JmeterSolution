@@ -144,7 +144,9 @@ export default function ScenariosPage() {
   }
 
   async function cloneScenarioItem(s: ScenarioListItem) {
+    if (actionId != null) return
     setActionId(s.id)
+    toast.info(`Cloning "${s.name}"…`)
     try {
       const cloned = await api.cloneScenario(s.id)
       toast.success(`Cloned as "${cloned.name}". You can rename it below.`)
@@ -461,11 +463,18 @@ export default function ScenariosPage() {
                       <button
                         className="btn btn-secondary"
                         style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
-                        disabled={actionId === s.id}
+                        disabled={actionId != null}
                         title="Clone scenario"
-                        onClick={() => cloneScenarioItem(s)}
+                        onClick={() => void cloneScenarioItem(s)}
                       >
-                        Clone
+                        {actionId === s.id ? (
+                          <>
+                            <span className="btn-spinner" aria-hidden="true" />
+                            Cloning…
+                          </>
+                        ) : (
+                          'Clone'
+                        )}
                       </button>
                       <button
                         className="btn btn-secondary"

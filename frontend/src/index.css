@@ -1751,6 +1751,49 @@ tfoot .aggregate-total-row:hover td {
   animation: dashboard-spin 0.75s linear infinite;
 }
 
+.scenario-create-busy {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin: 0 0 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--brand);
+  border-radius: 6px;
+  background: var(--brand-light);
+}
+
+.scenario-create-busy strong {
+  display: block;
+  font-size: 0.9375rem;
+  color: var(--brand-dark);
+}
+
+.scenario-create-busy span {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+.btn-spinner {
+  display: inline-block;
+  width: 0.9rem;
+  height: 0.9rem;
+  margin-right: 0.4rem;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  vertical-align: -0.15em;
+  animation: dashboard-spin 0.75s linear infinite;
+}
+
+.btn-secondary .btn-spinner,
+.btn.btn-secondary .btn-spinner {
+  border-color: rgba(1, 118, 211, 0.25);
+  border-top-color: var(--brand);
+}
+
 .dashboard-results-loading-text {
   display: flex;
   flex-direction: column;
