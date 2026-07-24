@@ -5,7 +5,8 @@ import {
   type AggregateSummaryConfig,
 } from './aggregateSummaryAvgs'
 import { computeAzureResourceAverages } from './azureResourceAverages'
-import { filterTransactionsByKind } from './transactionKind'
+import { filterTransactionsByKind, resolveTransactionKind } from './transactionKind'
+import { computeTransactionTotals } from './transactionTotals'
 
 export interface RepoReportMeta {
   run: TestRun | null
@@ -167,9 +168,8 @@ function writeMetaRow(
 
 /**
  * Build an .xlsx Repo report:
- * - Summary values: B:C merged + center aligned
- * - Table: Label | Samples | Response Time
- * - Response Time uses Excel data-bar conditional formatting (not solid cell fills)
+ * - Sheet "Repo Report": summary + Label | Samples | Response Time (current filters)
+ * - Sheet "Full Log": Pass+Fail All, all transactions and APIs/requests (CSV-style aggregate table)
  */
 export async function buildAggregateRepoWorkbook(
   transactions: TransactionMetric[],
@@ -350,7 +350,147 @@ export async function buildAggregateRepoWorkbook(
     }
   }
 
+  addFullLogSheet(workbook, transactions, meta.metrics?.elapsed_seconds)
+
   return workbook
+}
+
+/** Aggregate CSV-style columns for the Full Log sheet (Pass+Fail, all resources). */
+const FULL_LOG_HEADERS = [
+  'Label',
+  'Type',
+  'Outcome',
+  '# Samples',
+  'Errors',
+  'Avg (ms)',
+  'Min',
+  'Max',
+  'Median',
+  '90% Line',
+  '95% Line',
+  '99% Line',
+  'Error %',
+  'Throughput',
+] as const
+
+const FULL_LOG_COL_WIDTHS = [48, 14, 10, 12, 10, 12, 10, 10, 12, 12, 12, 12, 10, 12]
+
+function fullLogOutcome(metric: { errors: number }): 'Pass' | 'Fail' {
+  return metric.errors > 0 ? 'Fail' : 'Pass'
+}
+
+function fullLogTypeLabel(metric: TransactionMetric): string {
+  return resolveTransactionKind(metric) === 'request' ? 'API/Request' : 'Transaction'
+}
+
+function fullLogMetricRow(
+  label: string,
+  type: string,
+  outcome: string,
+  metric: {
+    samples: number
+    errors: number
+    avg_ms: number
+    min_ms: number
+    max_ms: number
+    median_ms: number
+    p90_ms: number
+    p95_ms: number
+    p99_ms: number
+    error_pct: number
+    throughput: number
+  }
+): (string | number)[] {
+  return [
+    label,
+    type,
+    outcome,
+    metric.samples,
+    metric.errors,
+    metric.avg_ms,
+    metric.min_ms,
+    metric.max_ms,
+    metric.median_ms,
+    metric.p90_ms,
+    metric.p95_ms,
+    metric.p99_ms,
+    metric.error_pct,
+    metric.throughput,
+  ]
+}
+
+/**
+ * Full Log tab: Pass and Fail (All) + Transactions and APIs/requests — same metrics as Aggregate CSV.
+ */
+function addFullLogSheet(
+  workbook: ExcelJS.Workbook,
+  transactions: TransactionMetric[],
+  elapsedSeconds?: number | null
+): void {
+  const sheet = workbook.addWorksheet('Full Log', {
+    views: [{ state: 'frozen', ySplit: 1, showGridLines: true }],
+  })
+
+  FULL_LOG_COL_WIDTHS.forEach((width, i) => {
+    sheet.getColumn(i + 1).width = width
+  })
+
+  const header = sheet.getRow(1)
+  FULL_LOG_HEADERS.forEach((title, i) => {
+    const cell = header.getCell(i + 1)
+    cell.value = title
+    cell.font = FONT_BOLD
+    cell.border = THIN_BORDER
+    cell.alignment = {
+      vertical: 'middle',
+      horizontal: i === 0 ? 'left' : 'center',
+    }
+  })
+  header.commit()
+
+  // Always Outcome=All and Type=All (every transaction + every API/request label).
+  // Transactions first, then APIs/requests, each group sorted by label.
+  const fullRows = [...filterTransactionsByKind(transactions, 'all')].sort((a, b) => {
+    const aTx = resolveTransactionKind(a) === 'transaction' ? 0 : 1
+    const bTx = resolveTransactionKind(b) === 'transaction' ? 0 : 1
+    if (aTx !== bTx) return aTx - bTx
+    return a.label.localeCompare(b.label)
+  })
+
+  if (fullRows.length === 0) return
+
+  const dataRows = fullRows.map((tx) =>
+    fullLogMetricRow(tx.label, fullLogTypeLabel(tx), fullLogOutcome(tx), tx)
+  )
+  const totals = computeTransactionTotals(fullRows, elapsedSeconds ?? undefined)
+  if (totals) {
+    dataRows.push(
+      fullLogMetricRow('TOTAL', 'All', fullLogOutcome(totals), totals)
+    )
+  }
+
+  sheet.addRows(dataRows)
+  const dataEnd = 1 + dataRows.length
+  for (let r = 2; r <= dataEnd; r++) {
+    const dataRow = sheet.getRow(r)
+    for (let c = 1; c <= FULL_LOG_HEADERS.length; c++) {
+      const cell = dataRow.getCell(c)
+      cell.border = THIN_BORDER
+      cell.alignment = {
+        vertical: 'middle',
+        horizontal: c === 1 ? 'left' : 'center',
+      }
+    }
+    // Emphasize TOTAL and Fail rows lightly.
+    const label = String(dataRow.getCell(1).value ?? '')
+    const outcome = String(dataRow.getCell(3).value ?? '')
+    if (label === 'TOTAL') {
+      dataRow.font = FONT_BOLD
+    } else if (outcome === 'Fail') {
+      dataRow.getCell(3).font = { ...FONT, color: { argb: 'FFC00000' } }
+    }
+    dataRow.commit()
+  }
 }
 
 function sanitizeFilenamePart(value: string): string {
@@ -385,6 +525,8 @@ export async function downloadAggregateRepoReport(options: {
   tableRows?: TransactionMetric[]
 }): Promise<boolean> {
   const { transactions, meta, runId, tableRows } = options
+  if (!transactions.length) return false
+
   const transactionRows = filterTransactionsByKind(transactions, 'transaction')
   const exportRows =
     (tableRows && tableRows.length > 0
@@ -392,7 +534,6 @@ export async function downloadAggregateRepoReport(options: {
       : transactionRows.length > 0
         ? transactionRows
         : transactions) ?? []
-  if (exportRows.length === 0) return false
 
   // Let the UI paint "Preparing…" before the heavy ExcelJS work.
   await new Promise<void>((resolve) => {

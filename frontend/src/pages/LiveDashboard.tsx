@@ -725,9 +725,7 @@ export default function LiveDashboard() {
           `Report exported. Next export available in ${EXPORT_COOLDOWN_SECONDS}s.`
         )
       } else {
-        toast.error(
-          'No rows to export. Switch Outcome to All or Type to All if the table is empty.'
-        )
+        toast.error('No metrics to export yet.')
       }
     } catch (err) {
       console.error('Export Report failed', err)
@@ -1083,7 +1081,7 @@ export default function LiveDashboard() {
                   ? `Export available again in ${exportCooldownLeft}s`
                   : exportingReport
                     ? 'Preparing Excel report…'
-                    : 'Excel report with summary averages and Label, Samples, Response Time'
+                    : 'Excel report: Repo Report (filtered aggregate) + Full Log (Pass/Fail All, all transactions and APIs)'
               }
             >
               {exportingReport

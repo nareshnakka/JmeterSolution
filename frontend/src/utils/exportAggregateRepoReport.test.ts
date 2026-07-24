@@ -86,6 +86,25 @@ describe('buildAggregateRepoWorkbook', () => {
       .conditionalFormattings
     expect(rules?.some((cf) => cf.rules.some((r) => r.type === 'dataBar'))).toBe(true)
 
+    const fullLog = workbook.getWorksheet('Full Log')
+    expect(fullLog).toBeTruthy()
+    if (!fullLog) return
+    expect(fullLog.getCell(1, 1).value).toBe('Label')
+    expect(fullLog.getCell(1, 2).value).toBe('Type')
+    expect(fullLog.getCell(1, 3).value).toBe('Outcome')
+    // Full Log includes Pass+Fail All and both transactions + API/request rows
+    expect(fullLog.getCell(2, 1).value).toBe('AAB_L_Dashboard')
+    expect(fullLog.getCell(2, 2).value).toBe('Transaction')
+    expect(fullLog.getCell(2, 3).value).toBe('Pass')
+    const labels: string[] = []
+    fullLog.eachRow((row, rowNumber) => {
+      if (rowNumber === 1) return
+      const v = row.getCell(1).value
+      if (typeof v === 'string') labels.push(v)
+    })
+    expect(labels).toContain('GET /health')
+    expect(labels).toContain('TOTAL')
+
     const buf = await workbook.xlsx.writeBuffer()
     expect(buf.byteLength).toBeGreaterThan(1000)
   })
@@ -124,6 +143,38 @@ describe('buildAggregateRepoWorkbook', () => {
       if (typeof v === 'string' && (v === 'Keep' || v === 'Skip')) labels.push(v)
     })
     expect(labels).toEqual(['Keep'])
+
+    // Full Log always includes every label regardless of tableRows filter
+    const fullLog = workbook.getWorksheet('Full Log')
+    expect(fullLog).toBeTruthy()
+    if (!fullLog) return
+    const fullLabels: string[] = []
+    fullLog.eachRow((row, rowNumber) => {
+      if (rowNumber === 1) return
+      const v = row.getCell(1).value
+      if (typeof v === 'string' && (v === 'Keep' || v === 'Skip')) fullLabels.push(v)
+    })
+    expect(fullLabels.sort()).toEqual(['Keep', 'Skip'])
+  })
+
+  it('marks Fail outcome on Full Log when a label has errors', async () => {
+    const failing: TransactionMetric = {
+      ...tx('Broken_API', 900, 4, 'request'),
+      errors: 2,
+      error_pct: 50,
+    }
+    const workbook = await buildAggregateRepoWorkbook([failing], {
+      run: null,
+      metrics: null,
+      config: DEFAULT_AGGREGATE_SUMMARY_CONFIG,
+    })
+    const fullLog = workbook.getWorksheet('Full Log')
+    expect(fullLog).toBeTruthy()
+    if (!fullLog) return
+    expect(fullLog.getCell(2, 1).value).toBe('Broken_API')
+    expect(fullLog.getCell(2, 2).value).toBe('API/Request')
+    expect(fullLog.getCell(2, 3).value).toBe('Fail')
+    expect(fullLog.getCell(2, 5).value).toBe(2)
   })
 
   it('includes Azure server Avg CPU and Memory in the summary', async () => {
